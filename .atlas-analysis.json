@@ -1,0 +1,193 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Rancher",
+  "projectDescription": "Complete container management platform for running Kubernetes everywhere with multi-cluster orchestration.",
+  "theme": "aspen",
+  "primaryColor": "#2454fc",
+  "lightColor": "#040404",
+  "darkColor": "#8cacd8",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/components",
+              "architecture/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cluster Management",
+        "groups": [
+          {
+            "group": "Provisioning",
+            "pages": [
+              "clusters/provisioning/overview",
+              "clusters/provisioning/rke2",
+              "clusters/provisioning/k3s",
+              "clusters/provisioning/hosted-kubernetes"
+            ]
+          },
+          {
+            "group": "Importing Clusters",
+            "pages": [
+              "clusters/importing/import-existing",
+              "clusters/importing/registration-tokens"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "clusters/operations/backup-restore",
+              "clusters/operations/certificate-rotation",
+              "clusters/operations/kubeconfig-access"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Authentication & Authorization",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "auth/overview",
+              "auth/providers",
+              "auth/tokens"
+            ]
+          },
+          {
+            "group": "Authorization",
+            "pages": [
+              "auth/rbac",
+              "auth/global-roles",
+              "auth/cluster-roles",
+              "auth/project-roles"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Configuration",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "configuration/helm-installation",
+              "configuration/high-availability",
+              "configuration/single-node"
+            ]
+          },
+          {
+            "group": "Settings",
+            "pages": [
+              "configuration/server-configuration",
+              "configuration/feature-flags",
+              "configuration/audit-logging",
+              "configuration/ssl-tls"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "APIs",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "api/resources/clusters",
+              "api/resources/projects",
+              "api/resources/nodes",
+              "api/resources/workloads"
+            ]
+          },
+          {
+            "group": "Cloud Providers",
+            "pages": [
+              "api/cloud/aks",
+              "api/cloud/eks",
+              "api/cloud/gke"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Advanced",
+        "groups": [
+          {
+            "group": "Fleet & GitOps",
+            "pages": [
+              "advanced/fleet/overview",
+              "advanced/fleet/continuous-delivery"
+            ]
+          },
+          {
+            "group": "Monitoring & Telemetry",
+            "pages": [
+              "advanced/monitoring",
+              "advanced/telemetry"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "advanced/catalog",
+              "advanced/ui-customization"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "advanced/development/building",
+              "advanced/development/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-cluster Kubernetes management and provisioning",
+    "Support for RKE2, K3s, and hosted Kubernetes (AKS, EKS, GKE)",
+    "Centralized authentication and RBAC across clusters",
+    "Import and manage existing Kubernetes clusters",
+    "Fleet GitOps and continuous delivery",
+    "Helm chart catalog and application deployment",
+    "Backup and restore with etcd snapshots",
+    "Certificate rotation and secrets management",
+    "Audit logging and security scanning",
+    "Multi-tenancy with projects and namespaces"
+  ],
+  "publicApiSurface": [
+    "Cluster Management API - Create, import, and manage Kubernetes clusters",
+    "Project and Namespace API - Multi-tenant organization",
+    "Authentication API - User and token management",
+    "RBAC API - Roles and permissions across clusters",
+    "Node API - Node management and configuration",
+    "Workload API - Deploy and manage containerized applications",
+    "Catalog API - Helm charts and application marketplace",
+    "Cloud Provider APIs - AKS, EKS, GKE, Alibaba integrations",
+    "Backup/Restore API - etcd snapshots and cluster recovery",
+    "Settings API - Server and cluster configuration"
+  ]
+}
