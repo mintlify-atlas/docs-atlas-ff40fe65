@@ -1,0 +1,542 @@
+---
+title: Project Roles
+description: Project roles define permissions scoped to a project and its namespaces
+---
+
+Project roles define permissions within a Rancher project. A project is a group of namespaces that provides multi-tenancy within a Kubernetes cluster by managing namespace operations as a unified group.
+
+## Projects Overview
+
+Projects are Rancher's primary multi-tenancy mechanism within a cluster.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:30-45`
+
+### Project Resource
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: Project
+metadata:
+  name: p-abc123
+  namespace: c-m-abcdefgh
+spec:
+  displayName: Development
+  description: Development team project
+  clusterName: c-m-abcdefgh
+  resourceQuota:
+    limit:
+      requestsCpu: "100"
+      requestsMemory: 100Gi
+status:
+  backingNamespace: p-abc123
+```
+
+### Key Fields
+
+#### clusterName
+The cluster this project belongs to. Immutable.
+
+#### backingNamespace
+The namespace in the local (management) cluster used to store ProjectRoleTemplateBindings and project-scoped secrets. Typically matches the project name.
+
+**Accessor method:** `GetProjectBackingNamespace()` - `pkg/apis/management.cattle.io/v3/authz_types.go:52-57`
+
+#### resourceQuota
+Optional cluster-wide quota for all namespaces in the project. Requires `namespaceDefaultResourceQuota` if specified.
+
+#### namespaceDefaultResourceQuota
+Default quota applied to namespaces that don't specify their own quota.
+
+## RoleTemplate for Projects
+
+Project-scoped RoleTemplates define permissions within a project's namespaces.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:301-372`
+
+### Specification
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: project-owner
+spec:
+  displayName: Project Owner
+  context: project
+  builtin: true
+  projectCreatorDefault: true
+  roleTemplateNames:
+    - admin
+  rules:
+    - apiGroups: ["management.cattle.io"]
+      resources: ["projectroletemplatebindings"]
+      verbs: ["*"]
+    - apiGroups: ["management.cattle.io"]
+      resources: ["projects"]
+      verbs: ["own"]
+```
+
+### Key Fields
+
+#### context
+Must be set to `"project"` for project-scoped roles.
+
+#### projectCreatorDefault
+If `true`, users who create a project automatically receive a binding with this role.
+
+**Example:** The built-in `project-owner` role has this set to `true`.
+
+**Bootstrapping:** During initialization, Rancher sets "project-owner" as the default for project creators.
+
+**Source:** `pkg/data/management/role_data.go:616-633`
+
+#### roleTemplateNames
+Inherit rules from other RoleTemplates. Commonly used to inherit from Kubernetes default roles:
+- `admin` - Kubernetes default admin role
+- `edit` - Kubernetes default edit role  
+- `view` - Kubernetes default view role
+
+## ProjectRoleTemplateBinding (PRTB)
+
+ProjectRoleTemplateBindings associate a subject (user or group) with a RoleTemplate in a specific project.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:378-412`
+
+### Specification
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ProjectRoleTemplateBinding
+metadata:
+  name: prtb-member-abc123
+  namespace: p-abc123
+spec:
+  projectName: c-m-abcdefgh:p-abc123
+  userName: u-abc123
+  roleTemplateName: project-member
+```
+
+### Fields
+
+All fields are **immutable** after creation. The namespace is the project's backing namespace.
+
+#### projectName
+Fully qualified project name in format `<cluster-name>:<project-name>`. Immutable.
+
+**Helper method:** `ObjClusterName()` extracts the cluster name - `pkg/apis/management.cattle.io/v3/authz_types.go:414-419`
+
+#### userName
+Name of the Rancher User resource to bind.
+
+#### userPrincipalName
+Name of a user principal to bind (alternative to `userName`).
+
+#### groupName
+Name of a Rancher Group to bind.
+
+#### groupPrincipalName
+Name of a group principal to bind (alternative to `groupName`).
+
+**Note:** Specify exactly one subject: `userName`, `userPrincipalName`, `groupName`, or `groupPrincipalName`.
+
+#### roleTemplateName
+Name of the RoleTemplate to apply.
+
+## Built-in Project Roles
+
+Rancher provides several built-in project-scoped RoleTemplates.
+
+**Source:** `pkg/data/management/role_data.go:202-371`
+
+### admin / edit / view
+
+**Display Names:**
+- Kubernetes admin
+- Kubernetes edit
+- Kubernetes view
+
+**Description:** Standard Kubernetes RBAC roles.
+
+**Properties:**
+- `external: true` - Reference Kubernetes built-in ClusterRoles
+- `builtin: true`
+
+These are typically inherited by other project roles rather than assigned directly.
+
+### project-owner
+
+**Display Name:** Project Owner
+
+**Description:** Full administrative access to the project with ownership rights.
+
+**Key Permissions:**
+- Manage project members (`projectroletemplatebindings`: all verbs)
+- `own` verb on the project resource
+- Create namespaces
+- Manage persistent volume claims
+- View persistent volumes and storage classes
+- View and access cluster resources (nodes, API services)
+- Manage monitoring resources (Prometheus, Grafana)
+- Manage Istio resources (gateways, virtual services, policies)
+- View catalog resources (apps, releases, cluster repos)
+- Get local cluster resource
+- **Inherits from:** `admin` (Kubernetes admin role)
+
+**Properties:**
+- `projectCreatorDefault: true` - Assigned to project creators
+- `builtin: true`
+
+**Special:** The `own` verb allows deletion and full management of the project resource itself.
+
+**Source:** `pkg/data/management/role_data.go:203-226`
+
+### project-member
+
+**Display Name:** Project Member
+
+**Description:** Can manage workloads and most project resources but not project members.
+
+**Key Permissions:**
+- View project role template bindings (read-only)
+- Create namespaces
+- Manage persistent volume claims
+- View persistent volumes and storage classes
+- Manage workloads, services, ingresses
+- Manage monitoring resources
+- Manage Istio resources
+- View catalog resources
+- **Inherits from:** `edit` (Kubernetes edit role)
+
+**Use Case:** Standard developer access for working within a project.
+
+**Source:** `pkg/data/management/role_data.go:228-249`
+
+### read-only
+
+**Display Name:** Read-only
+
+**Description:** Read-only access to all project resources.
+
+**Key Permissions:**
+- View all project and namespace resources
+- View monitoring and Istio resources
+- View catalog resources
+- **Inherits from:** `view` (Kubernetes view role)
+
+**Source:** `pkg/data/management/role_data.go:251-271`
+
+### Specialized Project Roles
+
+#### create-ns
+**Display Name:** Create Namespaces
+**Permission:** Create namespaces within the project
+
+#### workloads-manage
+**Display Name:** Manage Workloads
+**Permissions:** Full control over pods, deployments, statefulsets, daemonsets, jobs, cronjobs, and related resources
+
+#### workloads-view
+**Display Name:** View Workloads
+**Permissions:** Read-only access to workload resources
+
+#### ingress-manage / ingress-view
+**Display Name:** Manage/View Ingress
+**Permissions:** Control or view ingress resources
+
+#### services-manage / services-view
+**Display Name:** Manage/View Services
+**Permissions:** Control or view services and endpoints
+
+#### secrets-manage / secrets-view
+**Display Name:** Manage/View Secrets
+**Permissions:** Control or view secret resources
+
+#### configmaps-manage / configmaps-view
+**Display Name:** Manage/View Config Maps
+**Permissions:** Control or view ConfigMap resources
+
+#### persistentvolumeclaims-manage / persistentvolumeclaims-view
+**Display Name:** Manage/View Volumes
+**Permissions:** Control or view PVCs
+
+#### serviceaccounts-manage / serviceaccounts-view
+**Display Name:** Manage/View Service Accounts
+**Permissions:** Control or view ServiceAccount resources
+
+#### projectroletemplatebindings-manage / projectroletemplatebindings-view
+**Display Name:** Manage/View Project Members
+**Permissions:** Control or view project membership
+
+#### project-monitoring-readonly
+**Display Name:** Project Monitoring View Role
+**Permissions:** View Prometheus metrics in the project
+**Properties:** `hidden: true` - Not displayed in UI
+**Inherits from:** `view`
+
+#### monitoring-ui-view
+**Display Name:** View Monitoring
+**Permissions:** Access monitoring UI proxy endpoints (Prometheus, Alertmanager, Grafana)
+**External rules:** Access via service proxy with specific resource names
+
+## Multi-Tenancy Model
+
+### Namespace Isolation
+
+Projects provide namespace-level isolation:
+- Namespaces belong to exactly one project
+- Users with project roles gain permissions in all project namespaces
+- Resource quotas can be applied across all project namespaces
+
+### Project Membership
+
+Project members are defined by PRTBs:
+1. User or group is bound to a RoleTemplate via PRTB
+2. Rancher creates RoleBindings in each project namespace
+3. User gains permissions defined by the RoleTemplate
+4. As namespaces are added/removed from project, RoleBindings are reconciled
+
+### Cross-Namespace Permissions
+
+Project roles automatically grant permissions across all namespaces in the project. Rancher maintains RoleBindings in each namespace that reference the same Role.
+
+## Namespace Management
+
+### Adding Namespaces to Projects
+
+Namespaces are associated with projects via labels or explicit assignment:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-namespace
+  labels:
+    field.cattle.io/projectId: c-m-abcdefgh:p-abc123
+```
+
+### Backing Namespace
+
+Each project has a backing namespace that stores:
+- ProjectRoleTemplateBindings
+- Project-scoped secrets (e.g., image pull secrets)
+- Project-level resources
+
+**Access method:** `project.GetProjectBackingNamespace()`
+
+**Source:** `pkg/apis/management.cattle.io/v3/authz_types.go:52-57`
+
+### Default Namespaces
+
+Projects track assignment of default and system namespaces via status conditions:
+- `DefaultNamespacesAssigned` - Default namespaces have been created
+- `SystemNamespacesAssigned` - System namespaces have been assigned
+- `InitialRolesPopulated` - Initial roles have been created
+
+**Source:** `pkg/apis/management.cattle.io/v3/authz_types.go:14-19`
+
+## Management Plane Integration
+
+### Project-Scoped Resources in Cluster Namespace
+
+Some project-scoped resources exist in the cluster namespace rather than project namespace. Project roles need special handling to grant access:
+
+**Example resources:**
+- Cluster-scoped machine configs shared between projects
+- Cluster catalogs visible to all projects
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:524-583`
+
+### Cluster Owners Managing Project Members
+
+Cluster owners can manage members of all projects in their cluster. Rancher grants this by:
+
+1. Creating RoleBindings in each project's backing namespace
+2. Binding the cluster owner to roles that allow managing PRTBs
+3. Labeling these RoleBindings with the CRTB identifier
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:463-522`
+
+### Membership Bindings
+
+When a PRTB is created, Rancher creates a "membership" RoleBinding in the project's backing namespace:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: <deterministic-name>
+  namespace: p-abc123
+  labels:
+    <prtb-name>: membership-binding-owner
+subjects:
+  - kind: User
+    name: u-abc123
+roleRef:
+  kind: Role
+  name: <role-name>
+```
+
+This grants access to the project custom resource in the management plane.
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:206-285`
+
+## Project Ownership and Lifecycle
+
+### The "own" Verb
+
+The `own` verb on project resources indicates ownership:
+- Can delete the project
+- Full administrative control
+- Can manage all project settings
+
+**Ownership check:** `pkg/controllers/management/auth/manager.go:868-879`
+
+### Creator Defaults
+
+When a user creates a project:
+
+1. Project is created in a cluster namespace
+2. Rancher finds RoleTemplates with `projectCreatorDefault: true`
+3. Creates PRTB binding the creator to each matching role
+4. Creator immediately has full access
+
+### System Accounts
+
+Clusters and projects can have system accounts for automation:
+
+```go
+const (
+    projectMemberRole = "project-member"
+    ProjectSystemAccountPrefix = "System account for Project "
+)
+```
+
+**Usage:** Helm operations, CI/CD integrations
+
+**Source:** `pkg/systemaccount/systemaccount.go:17-22`
+
+## Common Patterns
+
+### Creating a Custom Project Role
+
+Grant workload management plus secret viewing:
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: custom-app-deployer
+spec:
+  displayName: Application Deployer
+  context: project
+  roleTemplateNames:
+    - workloads-manage
+    - configmaps-manage
+    - secrets-view
+  rules:
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["get", "list", "watch", "create", "update", "patch"]
+```
+
+### Binding a User to a Project Role
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ProjectRoleTemplateBinding
+metadata:
+  name: prtb-jane-deployer
+  namespace: p-abc123
+spec:
+  projectName: c-m-abcdefgh:p-abc123
+  userName: u-def456
+  roleTemplateName: custom-app-deployer
+```
+
+### Binding a Group to Project Member
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ProjectRoleTemplateBinding
+metadata:
+  name: prtb-devs-member
+  namespace: p-abc123
+spec:
+  projectName: c-m-abcdefgh:p-abc123
+  groupPrincipalName: keycloak_group://developers
+  roleTemplateName: project-member
+```
+
+### Inheriting Kubernetes Roles
+
+Create a project role that extends Kubernetes "edit":
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: project-editor-plus
+spec:
+  displayName: Project Editor Plus
+  context: project
+  roleTemplateNames:
+    - edit
+  rules:
+    - apiGroups: [""]
+      resources: ["secrets"]
+      verbs: ["get", "list", "watch"]
+```
+
+## Troubleshooting
+
+### Check PRTB Status
+
+```bash
+kubectl get projectroletemplatebinding -n <project-namespace> <prtb-name> -o yaml
+```
+
+PRTBs don't have a status field but you can check for related RoleBindings.
+
+### Verify Namespace RoleBindings
+
+In each project namespace:
+
+```bash
+kubectl get rolebinding -n <namespace>
+```
+
+Look for RoleBindings that reference the RoleTemplate name.
+
+### Verify Management Plane Access
+
+In the management cluster:
+
+```bash
+# Check RoleBindings in project backing namespace
+kubectl get rolebinding -n <project-backing-namespace>
+
+# Check if project resource is accessible
+kubectl get project -n <cluster-namespace> <project-name>
+```
+
+### Common Issues
+
+**User cannot access project namespaces:**
+- Verify PRTB exists in project backing namespace
+- Check that namespaces have correct project label
+- Ensure RoleTemplate exists and is not locked
+- Verify project is in active state
+
+**User cannot see project resource:**
+- Check membership RoleBinding in project backing namespace
+- Verify user has PRTB (not just downstream namespace access)
+
+**Permissions not updating:**
+- RoleTemplate changes don't automatically update existing Roles
+- May need to recreate PRTB to trigger reconciliation
+
+## Related Resources
+
+- [RBAC Model](/auth/rbac) - Overview of Rancher's authorization system
+- [Global Roles](/auth/global-roles) - Global-level permissions
+- [Cluster Roles](/auth/cluster-roles) - Cluster-scoped permissions

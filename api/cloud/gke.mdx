@@ -1,0 +1,387 @@
+---
+title: Google Kubernetes Engine (GKE) Integration
+description: Configure and manage GKE clusters with Rancher's GKE driver
+---
+
+## Overview
+
+Rancher provides native integration with Google Kubernetes Engine (GKE) through the `ClusterDriverGKE` driver. This enables provisioning, managing, and importing GKE clusters directly from Rancher using Google Cloud APIs.
+
+## Cluster Driver
+
+**Driver Name:** `GKE`
+
+Defined in: `pkg/apis/management.cattle.io/v3/cluster_types.go:84`
+
+```go
+ClusterDriverGKE = "GKE"
+```
+
+## Configuration Spec
+
+GKE clusters are configured using the `GKEClusterConfigSpec` structure.
+
+### Cluster Spec Fields
+
+```yaml
+spec:
+  gkeConfig:
+    googleCredentialSecret: string    # Reference to GCP credential secret
+    clusterName: string               # GKE cluster name
+    projectID: string                 # GCP project ID
+    zone: string                      # GCP zone (e.g., us-central1-a)
+    region: string                    # GCP region (e.g., us-central1)
+    kubernetesVersion: string         # Kubernetes version
+    imported: bool                    # Whether cluster is imported
+```
+
+### Authentication Configuration
+
+```yaml
+gkeConfig:
+  googleCredentialSecret: string      # Secret containing GCP credentials
+```
+
+**GCP Credential Secret Format:**
+The credential secret contains:
+- `googlecredentialConfig-authEncodedJson`: Base64-encoded service account JSON key
+
+Source: `pkg/api/norman/customization/gke/handler.go:217`
+
+### Networking Configuration
+
+```yaml
+gkeConfig:
+  network: string                     # VPC network name
+  subnetwork: string                  # Subnet name
+  clusterIpv4Cidr: string            # Cluster pod CIDR
+  ipAllocationPolicy:                # IP allocation for VPC-native clusters
+    useIpAliases: bool
+    clusterSecondaryRangeName: string
+    servicesSecondaryRangeName: string
+    clusterIpv4CidrBlock: string
+    servicesIpv4CidrBlock: string
+  networkPolicyEnabled: bool          # Enable network policy
+```
+
+### Node Pool Configuration
+
+```yaml
+gkeConfig:
+  nodePools:
+    - name: string                    # Node pool name
+      version: string                 # Kubernetes version
+      initialNodeCount: int           # Initial node count
+      minNodeCount: int               # Minimum nodes (autoscaling)
+      maxNodeCount: int               # Maximum nodes (autoscaling)
+      autoscaling:                    # Autoscaling configuration
+        enabled: bool
+        minNodeCount: int
+        maxNodeCount: int
+      config:                         # Node configuration
+        diskSizeGb: int              # Boot disk size
+        diskType: string             # Boot disk type (pd-standard, pd-ssd)
+        imageType: string            # OS image type
+        machineType: string          # GCP machine type (e.g., n1-standard-2)
+        labels: {}                   # Node labels
+        tags: []string              # Network tags
+        preemptible: bool           # Use preemptible instances
+        oauthScopes: []string       # OAuth scopes
+      management:                    # Node management
+        autoRepair: bool
+        autoUpgrade: bool
+```
+
+### Private Cluster Configuration
+
+```yaml
+gkeConfig:
+  privateClusterConfig:
+    enablePrivateEndpoint: bool       # Private API endpoint only
+    enablePrivateNodes: bool          # Private node IPs
+    masterIpv4CidrBlock: string      # Master CIDR block
+  masterAuthorizedNetworks:          # Authorized networks for API access
+    enabled: bool
+    cidrBlocks:
+      - displayName: string
+        cidrBlock: string
+```
+
+### Security & Addons
+
+```yaml
+gkeConfig:
+  clusterAddons:                      # Cluster addons
+    httpLoadBalancing: bool          # HTTP load balancing
+    horizontalPodAutoscaling: bool   # Horizontal pod autoscaling
+    networkPolicyConfig: bool        # Network policy
+    cloudRun: bool                   # Cloud Run for Anthos
+  loggingService: string             # Cloud Logging service
+  monitoringService: string          # Cloud Monitoring service
+  maintenanceWindow: string          # Maintenance window (HH:MM format)
+```
+
+### Advanced Features
+
+```yaml
+gkeConfig:
+  description: string                 # Cluster description
+  labels: {}                         # GCP resource labels
+  locations: []string                # Additional zones for regional clusters
+  enableKubernetesAlpha: bool        # Enable alpha features
+  autopilotConfig:                   # Autopilot mode configuration
+    enabled: bool
+  customerManagedEncryptionKey:      # CMEK configuration
+    keyName: string
+    state: string
+```
+
+## API Integration
+
+The GKE handler provides API endpoints for interacting with Google Cloud services.
+
+**Handler Location:** `pkg/api/norman/customization/gke/handler.go`
+
+### Available Endpoints
+
+- **gkeMachineTypes**: List available machine types for a zone
+- **gkeNetworks**: List VPC networks
+- **gkeSubnetworks**: List subnets for a network and region
+- **gkeServiceAccounts**: List service accounts
+- **gkeVersions**: List available Kubernetes versions
+- **gkeZones**: List available zones
+- **gkeClusters**: List existing GKE clusters
+- **gkeSharedSubnets**: List shared VPC subnets
+- **gkeFamiliesFromProject**: List image families from a project
+- **gkeImageFamilies**: List images in an image family
+- **gkeDiskTypes**: List available disk types
+
+Source: `pkg/api/norman/customization/gke/handler.go:82-185`
+
+### Credential Authentication
+
+The handler supports two authentication methods:
+
+1. **Cloud Credential ID**: Pass `cloudCredentialId` as query parameter
+2. **Direct Credentials**: POST credentials in request body
+
+```json
+{
+  "credentials": "base64-encoded-service-account-json",
+  "projectId": "gcp-project-id",
+  "zone": "us-central1-a",
+  "region": "us-central1"
+}
+```
+
+Source: `pkg/api/norman/customization/gke/handler.go:274-292`
+
+### Project ID Requirements
+
+Most endpoints require the `projectId` query parameter, except:
+- `gkeImageFamilies`: Used for browsing public images
+- `gkeFamiliesFromProject`: Requires `imageProjects` parameter
+
+Source: `pkg/api/norman/customization/gke/handler.go:62-67`
+
+## Cluster Status
+
+The GKE cluster status is tracked in `status.gkeStatus`:
+
+```yaml
+status:
+  driver: GKE
+  gkeStatus:
+    upstreamSpec:           # Copy of the GKE config spec
+    privateRequiresTunnel:  # Whether private clusters require tunnel
+```
+
+Source: `pkg/apis/management.cattle.io/v3/cluster_types.go:422-425`
+
+## Zonal vs Regional Clusters
+
+### Zonal Clusters
+
+```yaml
+gkeConfig:
+  zone: us-central1-a          # Single zone
+  locations: []                # Empty or unset
+```
+
+Control plane runs in a single zone. Lower cost but less HA.
+
+### Regional Clusters
+
+```yaml
+gkeConfig:
+  region: us-central1          # Region instead of zone
+  locations:                   # Additional zones (optional)
+    - us-central1-b
+    - us-central1-c
+```
+
+Control plane replicated across multiple zones. Higher availability and SLA.
+
+## Provisioning Workflow
+
+1. **Create Cluster Object**: Define cluster with `spec.gkeConfig`
+2. **Credential Validation**: Validate GCP service account
+3. **Resource Creation**: GKE operator provisions:
+   - GKE cluster control plane
+   - Node pools
+   - Network resources (if needed)
+4. **Status Updates**: Cluster status reflects provisioning state
+5. **Agent Deployment**: Rancher cluster agent deployed
+6. **Ready State**: Cluster becomes active and manageable
+
+## Importing Existing Clusters
+
+To import an existing GKE cluster:
+
+```yaml
+spec:
+  gkeConfig:
+    imported: true
+    googleCredentialSecret: "cattle-global-data:cc-xxxxx"
+    clusterName: "existing-cluster"
+    projectID: "my-gcp-project"
+    zone: "us-central1-a"
+```
+
+When `imported: true`, Rancher registers the cluster without modifying its configuration.
+
+## Shared VPC Support
+
+GKE clusters can use shared VPC networks from host projects:
+
+```yaml
+gkeConfig:
+  network: "projects/host-project/networks/shared-vpc"
+  subnetwork: "projects/host-project/regions/us-central1/subnetworks/shared-subnet"
+```
+
+Use the `gkeSharedSubnets` API endpoint to list available shared subnets.
+
+Source: `pkg/api/norman/customization/gke/handler.go:133-139`
+
+## Autopilot Mode
+
+GKE Autopilot provides a fully managed Kubernetes experience:
+
+```yaml
+gkeConfig:
+  autopilotConfig:
+    enabled: true
+```
+
+With Autopilot:
+- Google manages nodes, scaling, and security
+- Node pools are not configurable
+- Pay-per-pod pricing model
+
+## Best Practices
+
+### Networking
+- Use VPC-native clusters with IP aliases for better performance
+- Enable network policy for pod-to-pod security
+- Use private nodes to enhance security
+- Configure authorized networks for API server access
+
+### Node Pools
+- Use multiple node pools for different workload types
+- Enable autoscaling for dynamic workloads
+- Use preemptible instances for fault-tolerant workloads
+- Enable auto-repair and auto-upgrade for node management
+
+### Security
+- Use Workload Identity instead of service account keys
+- Enable private endpoint for private clusters
+- Use customer-managed encryption keys (CMEK) for data encryption
+- Configure master authorized networks to restrict API access
+- Use latest GKE release channel for security patches
+
+### High Availability
+- Use regional clusters for production workloads
+- Distribute node pools across multiple zones
+- Configure maintenance windows during low-traffic periods
+
+### Monitoring & Logging
+- Enable Cloud Logging and Cloud Monitoring
+- Use GKE usage metering for cost tracking
+- Configure log retention policies
+
+## Troubleshooting
+
+### Credential Issues
+
+If credential validation fails:
+- Verify service account has required roles:
+  - `Kubernetes Engine Admin`
+  - `Compute Viewer`
+  - `Service Account User`
+- Check if service account JSON is properly base64-encoded
+- Ensure API is enabled: `gcloud services enable container.googleapis.com`
+
+Source: `pkg/api/norman/customization/gke/handler.go:188-235`
+
+### Private Cluster Access
+
+For private clusters with `enablePrivateEndpoint: true`:
+- Rancher determines if tunneling is required
+- `privateRequiresTunnel: true`: Cluster agent tunnel required
+- `privateRequiresTunnel: false`: Direct API access possible
+
+### Quota Exceeded
+
+If you encounter quota errors:
+- Check GCP quotas: CPUs, IPs, In-use IPs
+- Request quota increase in GCP console
+- Reduce initial node count or machine size
+
+### Network Configuration Errors
+
+Common issues:
+- Subnet IP range exhaustion: Use larger subnet CIDR
+- Secondary range conflicts: Ensure pod/service ranges don't overlap
+- Shared VPC permissions: Verify host project permissions
+
+### Node Pool Creation Failures
+
+Check:
+- Service account has required OAuth scopes
+- Machine type is available in selected zones
+- Sufficient project quotas for instances
+- Boot disk type and size are valid
+
+## Related Resources
+
+- [Google Kubernetes Engine Documentation](https://cloud.google.com/kubernetes-engine/docs)
+- [GKE Best Practices](https://cloud.google.com/kubernetes-engine/docs/best-practices)
+- [GKE Operator GitHub](https://github.com/rancher/gke-operator)
+- [VPC-Native Clusters](https://cloud.google.com/kubernetes-engine/docs/concepts/alias-ips)
+- [GKE Autopilot](https://cloud.google.com/kubernetes-engine/docs/concepts/autopilot-overview)
+
+## API Reference
+
+### Cluster Type Definition
+
+Location: `pkg/apis/management.cattle.io/v3/cluster_types.go:163`
+
+```go
+type ClusterSpec struct {
+    GKEConfig *gkev1.GKEClusterConfigSpec `json:"gkeConfig,omitempty"`
+    // ... other fields
+}
+```
+
+### GKE Handler Registration
+
+The GKE API handler is registered in the Norman API server and handles all GKE-related API requests.
+
+Location: `pkg/api/norman/customization/gke/handler.go:42-49`
+
+### Access Control
+
+The handler performs cluster-based access control checks to ensure users can only access credentials associated with clusters they have permission to update.
+
+Location: `pkg/api/norman/customization/gke/handler.go:237-272`

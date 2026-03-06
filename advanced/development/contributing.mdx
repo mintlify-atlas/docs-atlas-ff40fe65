@@ -1,0 +1,518 @@
+---
+title: Contributing to Rancher
+description: Guidelines for contributing to Rancher, including code style, pull request process, and community involvement
+---
+
+# Contributing to Rancher
+
+We welcome contributions to Rancher! This guide covers the contribution process, code standards, and community guidelines.
+
+## Getting Started
+
+The official contribution guide is maintained at:
+
+**[Contributing to Rancher](https://ranchermanager.docs.rancher.com/contribute-to-rancher)**
+
+This guide provides comprehensive information about:
+- Setting up your development environment
+- Finding issues to work on
+- Submitting pull requests
+- Code review process
+- Community communication channels
+
+## Quick Start Guide
+
+### Prerequisites
+
+1. **GitHub account**: Required for submitting PRs
+2. **Development environment**: See [Building Rancher](./building)
+3. **Sign the CLA**: Contributor License Agreement (required for first contribution)
+
+### Fork and Clone
+
+1. **Fork the repository** on GitHub
+
+2. **Clone your fork**:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/rancher.git
+   cd rancher
+   ```
+
+3. **Add upstream remote**:
+   ```bash
+   git remote add upstream https://github.com/rancher/rancher.git
+   ```
+
+4. **Verify remotes**:
+   ```bash
+   git remote -v
+   # origin    https://github.com/YOUR_USERNAME/rancher.git (fetch)
+   # origin    https://github.com/YOUR_USERNAME/rancher.git (push)
+   # upstream  https://github.com/rancher/rancher.git (fetch)
+   # upstream  https://github.com/rancher/rancher.git (push)
+   ```
+
+## Development Workflow
+
+### Create a Feature Branch
+
+1. **Update your fork**:
+   ```bash
+   git fetch upstream
+   git checkout release/v2.8
+   git rebase upstream/release/v2.8
+   ```
+
+2. **Create feature branch**:
+   ```bash
+   git checkout -b feature/my-new-feature
+   ```
+
+### Make Changes
+
+1. **Write your code**
+   - Follow Go coding conventions
+   - Add tests for new functionality
+   - Update documentation as needed
+
+2. **Run tests**:
+   ```bash
+   # Unit tests
+   go test ./...
+   
+   # Integration tests (if applicable)
+   cd tests/v2/integration
+   go test -v ./...
+   ```
+
+3. **Verify build**:
+   ```bash
+   make build
+   ```
+
+### Commit Your Changes
+
+1. **Stage changes**:
+   ```bash
+   git add .
+   ```
+
+2. **Commit with descriptive message**:
+   ```bash
+   git commit -m "Add feature: brief description
+   
+   - Detailed explanation of changes
+   - Why the change was needed
+   - Any related issue numbers
+   
+   Fixes #12345"
+   ```
+
+### Push and Create Pull Request
+
+1. **Push to your fork**:
+   ```bash
+   git push origin feature/my-new-feature
+   ```
+
+2. **Create pull request** on GitHub:
+   - Navigate to your fork on GitHub
+   - Click "Compare & pull request"
+   - Fill in the PR template
+   - Reference related issues
+
+## Code Style Guidelines
+
+### Go Code Standards
+
+**Follow standard Go conventions**:
+
+1. **Formatting**:
+   ```bash
+   # Format code
+   gofmt -w .
+   
+   # Or use goimports (includes gofmt)
+   goimports -w .
+   ```
+
+2. **Linting**:
+   ```bash
+   # Run golangci-lint
+   golangci-lint run
+   
+   # Or install and run
+   go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+   golangci-lint run ./...
+   ```
+
+3. **Code organization**:
+   - Package names: lowercase, single word
+   - File names: lowercase, underscore-separated
+   - Keep files focused and cohesive
+
+### Naming Conventions
+
+**Variables and Functions**:
+```go
+// Good: descriptive, camelCase
+func getUserByID(userID string) (*User, error) {
+    var userName string
+    // ...
+}
+
+// Avoid: abbreviations, unclear names
+func get(id string) (*User, error) {
+    var un string
+    // ...
+}
+```
+
+**Constants**:
+```go
+// Good: CamelCase, exported when needed
+const (
+    DefaultTimeout = 30 * time.Second
+    MaxRetries     = 3
+)
+```
+
+**Interfaces**:
+```go
+// Good: single method interfaces end in "er"
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+// Good: descriptive names for complex interfaces
+type UserManager interface {
+    CreateUser(user *User) error
+    GetUser(id string) (*User, error)
+    DeleteUser(id string) error
+}
+```
+
+### Documentation
+
+**Package documentation**:
+```go
+// Package catalogv2 provides a set of tools for manipulating 
+// Helm charts and Helm repositories, as well as managing 
+// their dependencies.
+package catalogv2
+```
+
+**Function documentation**:
+```go
+// Index retrieves the Helm repository information for a specific 
+// namespace and name. By default, it uses rancher version and the 
+// local cluster's k8s version to filter available versions in the 
+// returned index file.
+//
+// If skipFilter is true, it will return the entire unfiltered index file.
+// If a valid targetK8sVersion is provided, it will filter versions based 
+// on rancher version and the target k8s version.
+func (c *Manager) Index(namespace, name, targetK8sVersion string, skipFilter bool) (*repo.IndexFile, error) {
+    // ...
+}
+```
+
+**Comments**:
+- Explain **why**, not **what** (code shows what)
+- Document exported functions, types, and constants
+- Use complete sentences
+- Start with the name of the item being documented
+
+### Error Handling
+
+**Always handle errors**:
+```go
+// Good: explicit error handling
+data, err := readFile(filename)
+if err != nil {
+    return fmt.Errorf("reading file %s: %w", filename, err)
+}
+
+// Avoid: ignoring errors
+data, _ := readFile(filename)
+```
+
+**Wrap errors with context**:
+```go
+import "fmt"
+
+if err != nil {
+    return fmt.Errorf("failed to create user: %w", err)
+}
+```
+
+### Testing
+
+**Write tests for new code**:
+```go
+func TestGetUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        userID  string
+        want    *User
+        wantErr bool
+    }{
+        {
+            name:   "valid user",
+            userID: "user-123",
+            want:   &User{ID: "user-123", Name: "Test User"},
+        },
+        {
+            name:    "invalid user",
+            userID:  "invalid",
+            wantErr: true,
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            got, err := GetUser(tt.userID)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("GetUser() error = %v, wantErr %v", err, tt.wantErr)
+                return
+            }
+            if !reflect.DeepEqual(got, tt.want) {
+                t.Errorf("GetUser() = %v, want %v", got, tt.want)
+            }
+        })
+    }
+}
+```
+
+## Pull Request Process
+
+### Before Submitting
+
+**Checklist**:
+- [ ] Code follows Go conventions and style guide
+- [ ] All tests pass: `go test ./...`
+- [ ] New code has test coverage
+- [ ] Documentation is updated
+- [ ] Commit messages are clear and descriptive
+- [ ] PR description explains the change
+- [ ] Related issues are referenced
+
+### PR Template
+
+Fill out the PR template completely:
+
+```markdown
+## Issue
+Fixes #[issue number]
+
+## Description
+[Brief description of the change]
+
+## Types of changes
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to change)
+- [ ] Documentation update
+
+## Testing
+[Describe how you tested the changes]
+
+## Screenshots (if applicable)
+[Add screenshots to show UI changes]
+
+## Checklist
+- [ ] My code follows the code style of this project
+- [ ] I have added tests to cover my changes
+- [ ] All new and existing tests passed
+- [ ] My change requires a change to the documentation
+- [ ] I have updated the documentation accordingly
+```
+
+### Code Review
+
+**Expect feedback**:
+- Reviewers may request changes
+- Address all comments
+- Ask questions if something is unclear
+- Push updates to the same branch
+
+**Responding to feedback**:
+```bash
+# Make requested changes
+git add .
+git commit -m "Address review feedback"
+git push origin feature/my-new-feature
+```
+
+### Merging
+
+**After approval**:
+- Maintainers will merge your PR
+- The branch can be deleted after merging
+- Your contribution will be in the next release!
+
+## Issue Guidelines
+
+### Reporting Bugs
+
+**Before creating an issue**:
+1. Search existing issues
+2. Check if it's already fixed in latest version
+3. Verify it's a Rancher issue (not upstream)
+
+**Bug report template**:
+```markdown
+### Rancher Server Setup
+- Rancher version: v2.8.0
+- Installation option: Docker/Helm/etc.
+- Kubernetes version: v1.28.0
+- Docker version: 24.0.0
+
+### Describe the bug
+[Clear description of what the bug is]
+
+### To Reproduce
+Steps to reproduce:
+1. Go to '...'
+2. Click on '....'
+3. See error
+
+### Expected behavior
+[What you expected to happen]
+
+### Actual behavior
+[What actually happened]
+
+### Screenshots
+[If applicable]
+
+### Additional context
+[Any other context about the problem]
+```
+
+### Feature Requests
+
+```markdown
+### Is your feature request related to a problem?
+[Description of the problem]
+
+### Describe the solution you'd like
+[Clear description of what you want to happen]
+
+### Describe alternatives you've considered
+[Alternative solutions or features]
+
+### Additional context
+[Any other context or screenshots]
+```
+
+## Community
+
+### Communication Channels
+
+**Rancher Forums**:
+- [forums.rancher.com](https://forums.rancher.com/)
+- General discussion and questions
+- Announcements of new releases
+
+**Slack**:
+- [slack.rancher.io](https://slack.rancher.io/)
+- Real-time chat with community and team
+- Technical discussions
+
+**GitHub**:
+- [github.com/rancher/rancher](https://github.com/rancher/rancher)
+- Bug reports and feature requests
+- Pull requests and code reviews
+
+### Getting Help
+
+1. **Documentation**: [ranchermanager.docs.rancher.com](https://ranchermanager.docs.rancher.com/)
+2. **Forums**: Ask questions in the forums
+3. **Slack**: Join #rancher channel for quick questions
+4. **GitHub Issues**: For bugs and feature requests
+
+### Security Issues
+
+**Do NOT open public issues for security vulnerabilities**
+
+1. **Review security policy**: [github.com/rancher/rancher/security](https://github.com/rancher/rancher/security)
+2. **Email security team**: security-rancher@suse.com
+3. **Optional GPG key**: [Keybase](https://keybase.io/rancher)
+
+## Best Practices
+
+### Development
+
+1. **Keep PRs focused**: One feature or fix per PR
+2. **Write tests**: Ensure good test coverage
+3. **Update docs**: Keep documentation in sync with code
+4. **Rebase frequently**: Keep your branch up to date
+5. **Squash commits**: Before merging (if requested)
+
+### Communication
+
+1. **Be respectful**: Follow the code of conduct
+2. **Be patient**: Reviewers are volunteers
+3. **Be clear**: Explain your reasoning
+4. **Be responsive**: Address feedback promptly
+5. **Be helpful**: Help others in the community
+
+### Code Quality
+
+1. **Follow conventions**: Existing code style
+2. **Think about edge cases**: Handle errors gracefully
+3. **Consider performance**: Efficient implementations
+4. **Maintain backwards compatibility**: When possible
+5. **Document public APIs**: Clear and complete docs
+
+## Release Process
+
+### Versioning
+
+Rancher follows semantic versioning:
+- **Major** (v2.x.x): Breaking changes
+- **Minor** (v2.8.x): New features, backwards compatible
+- **Patch** (v2.8.3): Bug fixes, backwards compatible
+
+### Branches
+
+- `release/v2.8`: Current stable branch
+- `release/v2.9`: Next minor version
+- `master`: Development branch (future major version)
+
+### Release Channels
+
+- **Latest**: Most recent stable release
+- **Stable**: Production-ready releases
+- **Alpha**: Preview of upcoming features
+
+## Additional Resources
+
+### Documentation
+
+- **Official Docs**: [ranchermanager.docs.rancher.com](https://ranchermanager.docs.rancher.com/)
+- **Contributing Guide**: [ranchermanager.docs.rancher.com/contribute-to-rancher](https://ranchermanager.docs.rancher.com/contribute-to-rancher)
+- **Build Guide**: See [Building Rancher](./building)
+
+### Code
+
+- **Main Repository**: [github.com/rancher/rancher](https://github.com/rancher/rancher)
+- **Go Modules**: See `go.mod` for dependencies
+- **Contributing File**: `CONTRIBUTING.md`
+
+### Support
+
+- **Support Matrix**: [rancher.com/support-matrix](https://rancher.com/support-matrix/)
+- **Commercial Support**: Available from SUSE
+- **Community Support**: Forums and Slack
+
+## License
+
+Copyright (c) 2014-2025 [SUSE](http://rancher.com)
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](http://www.apache.org/licenses/LICENSE-2.0) for details.
+
+## Acknowledgments
+
+Thank you for contributing to Rancher! Your contributions help make Rancher better for everyone.

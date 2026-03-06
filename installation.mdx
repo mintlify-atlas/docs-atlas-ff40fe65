@@ -1,0 +1,555 @@
+---
+title: Installation Guide
+description: Learn how to install Rancher in production environments with Docker, Helm, and Kubernetes
+---
+
+## Installation Overview
+
+Rancher can be installed in multiple ways depending on your requirements. This guide covers production-ready installation methods with proper SSL/TLS configuration and high availability.
+
+<Info>
+For a quick development setup, see the [Quick Start Guide](/quickstart).
+</Info>
+
+## Installation Methods
+
+<CardGroup cols={2}>
+  <Card title="Single-Node Docker" icon="docker">
+    Quick setup for development, testing, or small deployments on a single Linux host.
+  </Card>
+  
+  <Card title="Helm on Kubernetes" icon="dharmachakra">
+    Production-grade installation on existing Kubernetes clusters with high availability.
+  </Card>
+  
+  <Card title="RKE2/K3s Cluster" icon="server">
+    Deploy Rancher on Rancher's own Kubernetes distributions for optimal integration.
+  </Card>
+  
+  <Card title="Hosted Kubernetes" icon="cloud">
+    Install on managed Kubernetes services like AKS, EKS, or GKE.
+  </Card>
+</CardGroup>
+
+## System Requirements
+
+### Operating Systems
+
+<Note>
+Refer to the [Support Matrix](https://rancher.com/support-matrix/) for specific OS versions supported by each Rancher version.
+</Note>
+
+Supported operating systems include:
+- Ubuntu 20.04+ (64-bit)
+- RHEL/CentOS 7.9+ (64-bit)
+- SLES 15+ (64-bit)
+- Oracle Linux 7.9+ (64-bit)
+
+### Hardware Requirements
+
+#### For Development/Testing (Single-Node)
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 2 cores | 4 cores |
+| RAM | 4 GB | 8 GB |
+| Disk | 50 GB | 100 GB |
+
+#### For Production (High Availability)
+
+| Resource | Per Node | Nodes Required |
+|----------|----------|----------------|
+| CPU | 4 cores | 3+ |
+| RAM | 8 GB | 3+ |
+| Disk | 100 GB | 3+ |
+
+### Networking Requirements
+
+#### Required Ports
+
+| Port | Protocol | Direction | Purpose |
+|------|----------|-----------|----------|
+| 80 | TCP | Inbound | HTTP (redirect to HTTPS) |
+| 443 | TCP | Inbound | HTTPS / Rancher UI |
+| 6443 | TCP | Inbound | Kubernetes API Server |
+
+<Warning>
+Ensure your firewall rules allow traffic on these ports. Additional ports may be required for node-to-node communication in Kubernetes clusters.
+</Warning>
+
+### Software Prerequisites
+
+<Tabs>
+  <Tab title="Docker Installation">
+    - Docker 20.10+ (Docker CE recommended)
+    - Docker Compose (optional)
+  </Tab>
+  
+  <Tab title="Kubernetes Installation">
+    - kubectl CLI tool
+    - Helm 3.2+
+    - Kubernetes cluster (v1.23+)
+  </Tab>
+</Tabs>
+
+## Method 1: Single-Node Docker Installation
+
+Best for development, testing, or small production workloads.
+
+### Basic Installation
+
+```bash
+sudo docker run -d --restart=unless-stopped -p 80:80 -p 443:443 --privileged rancher/rancher
+```
+
+### With Persistent Data
+
+To persist Rancher data across container restarts:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  -v /opt/rancher:/var/lib/rancher \
+  rancher/rancher:stable
+```
+
+### Using a Specific Version
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  rancher/rancher:v2.13.3
+```
+
+<Note>
+The stable tag always points to the latest stable release. For production, it's recommended to pin to a specific version.
+</Note>
+
+## Method 2: Helm Installation on Kubernetes
+
+Recommended for production environments requiring high availability.
+
+<Steps>
+  <Step title="Add the Helm Chart Repository">
+    Add the Rancher Helm repository:
+
+    ```bash
+    helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
+    ```
+
+    For stable releases, use:
+
+    ```bash
+    helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
+    ```
+
+    Update the repository:
+
+    ```bash
+    helm repo update
+    ```
+  </Step>
+
+  <Step title="Create a Namespace">
+    Create the `cattle-system` namespace where Rancher will be installed:
+
+    ```bash
+    kubectl create namespace cattle-system
+    ```
+
+    <Info>
+    The namespace must be named `cattle-system` as this is where Rancher expects to run.
+    </Info>
+  </Step>
+
+  <Step title="Choose SSL/TLS Configuration">
+    Rancher requires SSL/TLS configuration. Choose one of three options:
+
+    <Tabs>
+      <Tab title="Rancher-Generated Certificates">
+        Rancher will generate and manage its own self-signed certificates.
+
+        **Requires**: cert-manager installed
+
+        ```bash
+        # Install cert-manager
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+        ```
+      </Tab>
+
+      <Tab title="Let's Encrypt">
+        Use Let's Encrypt to automatically provision and renew certificates.
+
+        **Requires**: cert-manager installed and publicly accessible hostname
+
+        ```bash
+        # Install cert-manager
+        kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+        ```
+      </Tab>
+
+      <Tab title="Bring Your Own Certificate">
+        Use your own TLS certificates from a trusted CA.
+
+        **Requires**: Creating a Kubernetes secret with your certificate
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Install cert-manager (if required)">
+    If using Rancher-generated certificates or Let's Encrypt:
+
+    ```bash
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+    ```
+
+    Verify cert-manager is running:
+
+    ```bash
+    kubectl get pods --namespace cert-manager
+    ```
+
+    Wait until all pods show `Running` status.
+  </Step>
+
+  <Step title="Install Rancher with Helm">
+    <Tabs>
+      <Tab title="Rancher-Generated Certificates">
+        ```bash
+        helm install rancher rancher-latest/rancher \
+          --namespace cattle-system \
+          --set hostname=rancher.my.org
+        ```
+
+        Replace `rancher.my.org` with your actual hostname.
+      </Tab>
+
+      <Tab title="Let's Encrypt">
+        ```bash
+        helm install rancher rancher-latest/rancher \
+          --namespace cattle-system \
+          --set hostname=rancher.my.org \
+          --set ingress.tls.source=letsEncrypt \
+          --set letsEncrypt.email=me@example.org
+        ```
+
+        Replace:
+        - `rancher.my.org` with your hostname
+        - `me@example.org` with your email
+      </Tab>
+
+      <Tab title="Your Own Certificates">
+        First, create a Kubernetes secret with your certificate:
+
+        ```bash
+        kubectl -n cattle-system create secret tls tls-rancher-ingress \
+          --cert=tls.crt \
+          --key=tls.key
+        ```
+
+        Then install Rancher:
+
+        ```bash
+        helm install rancher rancher-latest/rancher \
+          --namespace cattle-system \
+          --set hostname=rancher.my.org \
+          --set ingress.tls.source=secret
+        ```
+
+        For private CA certificates, add `--set privateCA=true`:
+
+        ```bash
+        helm install rancher rancher-latest/rancher \
+          --namespace cattle-system \
+          --set hostname=rancher.my.org \
+          --set ingress.tls.source=secret \
+          --set privateCA=true
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Verify Installation">
+    Check the rollout status:
+
+    ```bash
+    kubectl -n cattle-system rollout status deploy/rancher
+    ```
+
+    Expected output:
+
+    ```
+    Waiting for deployment "rancher" rollout to finish: 0 of 3 updated replicas are available...
+    deployment "rancher" successfully rolled out
+    ```
+
+    Verify the deployment:
+
+    ```bash
+    kubectl -n cattle-system get deploy rancher
+    ```
+
+    Output should show:
+
+    ```
+    NAME      DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+    rancher   3         3         3            3           3m
+    ```
+
+    <Note>
+    The `DESIRED` and `AVAILABLE` counts should match. If deployment times out, check pod status with `kubectl -n cattle-system get pods`.
+    </Note>
+  </Step>
+
+  <Step title="Access Rancher">
+    Navigate to the hostname you configured (e.g., `https://rancher.my.org`).
+
+    You'll be prompted to set the admin password on first login.
+  </Step>
+</Steps>
+
+## Advanced Helm Configuration Options
+
+### Common Options
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.my.org \
+  --set replicas=3 \
+  --set ingress.tls.source=letsEncrypt \
+  --set letsEncrypt.email=admin@example.org \
+  --set letsEncrypt.environment=production
+```
+
+### Key Configuration Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `hostname` | (required) | Fully Qualified Domain Name for Rancher Server |
+| `replicas` | 3 | Number of Rancher pod replicas |
+| `ingress.tls.source` | `rancher` | Certificate source: `rancher`, `letsEncrypt`, `secret` |
+| `letsEncrypt.email` | `""` | Email for Let's Encrypt notifications |
+| `letsEncrypt.environment` | `production` | `staging` or `production` |
+| `privateCA` | `false` | Set to `true` for private CA certificates |
+| `bootstrapPassword` | (random) | Set initial bootstrap password |
+| `antiAffinity` | `preferred` | Pod anti-affinity: `preferred` or `required` |
+| `auditLog.enabled` | `false` | Enable audit logging |
+
+<Info>
+For a complete list of options, see the [Helm Chart Options](https://ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/installation-references/helm-chart-options) documentation.
+</Info>
+
+### Proxy Configuration
+
+For environments requiring an HTTP proxy:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.my.org \
+  --set proxy="http://proxy.example.com:8080" \
+  --set noProxy="127.0.0.0/8\,10.0.0.0/8\,172.16.0.0/12\,192.168.0.0/16\,.svc\,.cluster.local"
+```
+
+### Air-Gapped Installation
+
+For air-gapped environments:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.my.org \
+  --set rancherImage=registry.example.com/rancher/rancher \
+  --set systemDefaultRegistry=registry.example.com \
+  --set useBundledSystemChart=true
+```
+
+## High Availability Considerations
+
+<Warning>
+For production deployments, always use a high-availability setup with at least 3 nodes.
+</Warning>
+
+### Recommended HA Architecture
+
+1. **Kubernetes Cluster**: 3+ nodes for control plane
+2. **Rancher Replicas**: 3+ pods across different nodes
+3. **Load Balancer**: Layer 4 or 7 load balancer for ingress
+4. **Persistent Storage**: For etcd and Rancher data
+5. **Backup Strategy**: Regular etcd and cluster backups
+
+### Supported Kubernetes Distributions
+
+For production deployments, Rancher supports:
+
+<CardGroup cols={2}>
+  <Card title="RKE2" href="https://ranchermanager.docs.rancher.com/how-to-guides/new-user-guides/kubernetes-cluster-setup/rke2-for-rancher">
+    Rancher's security-focused Kubernetes distribution
+  </Card>
+  
+  <Card title="K3s" href="https://ranchermanager.docs.rancher.com/how-to-guides/new-user-guides/kubernetes-cluster-setup/k3s-for-rancher">
+    Lightweight Kubernetes for edge and IoT
+  </Card>
+  
+  <Card title="RKE1" href="https://ranchermanager.docs.rancher.com/how-to-guides/new-user-guides/kubernetes-cluster-setup/rke1-for-rancher">
+    Rancher Kubernetes Engine (legacy)
+  </Card>
+  
+  <Card title="Hosted Kubernetes">
+    AKS, EKS, GKE with specific version requirements
+  </Card>
+</CardGroup>
+
+## Post-Installation Steps
+
+<Steps>
+  <Step title="Save Your Configuration">
+    Save the Helm values you used for installation:
+
+    ```bash
+    helm get values rancher -n cattle-system -o yaml > rancher-values.yaml
+    ```
+
+    <Info>
+    You'll need these values for future upgrades.
+    </Info>
+  </Step>
+
+  <Step title="Configure Authentication">
+    Set up external authentication providers:
+    - Active Directory / LDAP
+    - Azure AD
+    - GitHub
+    - Google OAuth
+    - Okta
+    - Keycloak
+
+    See [Authentication](/auth/overview) for details.
+  </Step>
+
+  <Step title="Set Up Backup">
+    Configure regular backups of:
+    - Rancher data (etcd)
+    - Kubernetes cluster state
+    - Application data
+
+    See [Backup & Restore](/clusters/operations/backup-restore) for procedures.
+  </Step>
+
+  <Step title="Configure Monitoring">
+    Enable monitoring and alerting:
+    - Install Prometheus and Grafana
+    - Configure alerts
+    - Set up log aggregation
+
+    See [Monitoring](/advanced/monitoring) for setup.
+  </Step>
+</Steps>
+
+## Upgrading Rancher
+
+To upgrade Rancher to a new version:
+
+```bash
+helm upgrade rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --reuse-values
+```
+
+<Warning>
+Always review the release notes before upgrading and test upgrades in a non-production environment first.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Deployment exceeds progress deadline">
+    Check pod status:
+
+    ```bash
+    kubectl -n cattle-system get pods
+    kubectl -n cattle-system describe pod <pod-name>
+    ```
+
+    Common causes:
+    - Insufficient resources
+    - Image pull failures
+    - Network connectivity issues
+  </Accordion>
+
+  <Accordion title="cert-manager issues">
+    Verify cert-manager is running:
+
+    ```bash
+    kubectl get pods -n cert-manager
+    ```
+
+    Check certificate status:
+
+    ```bash
+    kubectl -n cattle-system get certificate
+    kubectl -n cattle-system describe certificate
+    ```
+  </Accordion>
+
+  <Accordion title="Ingress not working">
+    Verify ingress controller is installed:
+
+    ```bash
+    kubectl get ingressclass
+    kubectl get ingress -n cattle-system
+    ```
+
+    Check if hostname resolves correctly:
+
+    ```bash
+    nslookup rancher.my.org
+    ```
+  </Accordion>
+
+  <Accordion title="Can't access Rancher UI">
+    Check all pods are running:
+
+    ```bash
+    kubectl -n cattle-system get all
+    ```
+
+    View Rancher logs:
+
+    ```bash
+    kubectl -n cattle-system logs -l app=rancher
+    ```
+  </Accordion>
+</AccordionGroup>
+
+For more troubleshooting help, see the [Rancher Troubleshooting Guide](https://ranchermanager.docs.rancher.com/troubleshooting/general-troubleshooting).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Provision Clusters" icon="plus" href="/clusters/provisioning/overview">
+    Create and manage Kubernetes clusters
+  </Card>
+  
+  <Card title="Configure Authentication" icon="key" href="/auth/overview">
+    Set up user authentication and authorization
+  </Card>
+  
+  <Card title="High Availability Setup" icon="layer-group" href="/configuration/high-availability">
+    Configure HA for production deployments
+  </Card>
+  
+  <Card title="Backup & Restore" icon="floppy-disk" href="/clusters/operations/backup-restore">
+    Set up backup procedures
+  </Card>
+</CardGroup>
+
+## Additional Resources
+
+- [Official Installation Documentation](https://ranchermanager.docs.rancher.com/pages-for-subheaders/installation-and-upgrade)
+- [Best Practices](https://ranchermanager.docs.rancher.com/pages-for-subheaders/best-practices)
+- [Support Matrix](https://rancher.com/support-matrix/)
+- [Rancher Forums](http://forums.rancher.com/)

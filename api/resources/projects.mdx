@@ -1,0 +1,496 @@
+---
+title: Project API Resource
+description: Multi-tenant project management within Kubernetes clusters
+---
+
+Projects are a Rancher construct that provides multi-tenancy within a Kubernetes cluster by grouping namespaces and applying consistent policies, quotas, and access controls.
+
+## Project Resource
+
+From `pkg/apis/management.cattle.io/v3/authz_types.go:30`
+
+### Project Spec
+
+<ParamField path="displayName" type="string" required>
+  Human-readable name for the project
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional description of the project's purpose
+</ParamField>
+
+<ParamField path="clusterName" type="string" required>
+  Name of the cluster this project belongs to (immutable)
+</ParamField>
+
+<ParamField path="resourceQuota" type="ProjectResourceQuota">
+  Total resource quota shared across all namespaces in the project
+  
+  <ParamField path="limit" type="ResourceQuotaLimit">
+    Resource limits for the project
+    
+    <ParamField path="limitsCpu" type="string">
+      Total CPU limit (e.g., "4000m")
+    </ParamField>
+    
+    <ParamField path="limitsMemory" type="string">
+      Total memory limit (e.g., "8Gi")
+    </ParamField>
+    
+    <ParamField path="requestsCpu" type="string">
+      Total CPU requests (e.g., "2000m")
+    </ParamField>
+    
+    <ParamField path="requestsMemory" type="string">
+      Total memory requests (e.g., "4Gi")
+    </ParamField>
+  </ParamField>
+</ParamField>
+
+<ParamField path="namespaceDefaultResourceQuota" type="NamespaceResourceQuota">
+  Default quota applied to each namespace in the project
+  
+  <ParamField path="limit" type="ResourceQuotaLimit">
+    Per-namespace resource limits
+  </ParamField>
+</ParamField>
+
+<ParamField path="containerDefaultResourceLimit" type="ContainerResourceLimit">
+  Default resource limits for containers in the project
+  
+  <ParamField path="limitsCpu" type="string">
+    Default CPU limit per container (e.g., "200m")
+  </ParamField>
+  
+  <ParamField path="limitsMemory" type="string">
+    Default memory limit per container (e.g., "256Mi")
+  </ParamField>
+  
+  <ParamField path="requestsCpu" type="string">
+    Default CPU request per container (e.g., "100m")
+  </ParamField>
+  
+  <ParamField path="requestsMemory" type="string">
+    Default memory request per container (e.g., "128Mi")
+  </ParamField>
+</ParamField>
+
+### Project Status
+
+<ResponseField name="conditions" type="array<ProjectCondition>">
+  Current state of the project
+</ResponseField>
+
+<ResponseField name="backingNamespace" type="string">
+  Namespace used to store project-scoped resources (PRTBs, secrets)
+</ResponseField>
+
+## Project Conditions
+
+From `pkg/apis/management.cattle.io/v3/authz_types.go:14`
+
+<ResponseField name="BackingNamespaceCreated" type="condition">
+  Backing namespace has been created
+</ResponseField>
+
+<ResponseField name="CreatorMadeOwner" type="condition">
+  Project creator has been granted owner permissions
+</ResponseField>
+
+<ResponseField name="DefaultNetworkPolicyCreated" type="condition">
+  Default network policy has been applied
+</ResponseField>
+
+<ResponseField name="InitialRolesPopulated" type="condition">
+  Initial RBAC roles have been created
+</ResponseField>
+
+## Create Project
+
+Create a new project within a cluster.
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "project",
+    "name": "production",
+    "displayName": "Production",
+    "description": "Production workloads",
+    "clusterName": "c-m-abc123",
+    "resourceQuota": {
+      "limit": {
+        "limitsCpu": "4000m",
+        "limitsMemory": "8Gi",
+        "requestsCpu": "2000m",
+        "requestsMemory": "4Gi"
+      }
+    },
+    "namespaceDefaultResourceQuota": {
+      "limit": {
+        "limitsCpu": "1000m",
+        "limitsMemory": "2Gi"
+      }
+    },
+    "containerDefaultResourceLimit": {
+      "limitsCpu": "200m",
+      "limitsMemory": "256Mi",
+      "requestsCpu": "100m",
+      "requestsMemory": "128Mi"
+    }
+  }' \
+  https://rancher-server/v3/projects
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://rancher-server/v3/projects',
+    headers={
+        'Authorization': f'Bearer {RANCHER_TOKEN}',
+        'Content-Type': 'application/json'
+    },
+    json={
+        'type': 'project',
+        'name': 'production',
+        'displayName': 'Production',
+        'description': 'Production workloads',
+        'clusterName': 'c-m-abc123',
+        'resourceQuota': {
+            'limit': {
+                'limitsCpu': '4000m',
+                'limitsMemory': '8Gi',
+                'requestsCpu': '2000m',
+                'requestsMemory': '4Gi'
+            }
+        },
+        'containerDefaultResourceLimit': {
+            'limitsCpu': '200m',
+            'limitsMemory': '256Mi',
+            'requestsCpu': '100m',
+            'requestsMemory': '128Mi'
+        }
+    }
+)
+
+project = response.json()
+print(f"Project ID: {project['id']}")
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "id": "c-m-abc123:p-xyz789",
+  "type": "project",
+  "links": {
+    "self": "https://rancher-server/v3/projects/c-m-abc123:p-xyz789",
+    "namespaces": "https://rancher-server/v3/projects/c-m-abc123:p-xyz789/namespaces"
+  },
+  "metadata": {
+    "name": "production",
+    "namespace": "c-m-abc123",
+    "creationTimestamp": "2024-01-01T00:00:00Z"
+  },
+  "spec": {
+    "displayName": "Production",
+    "description": "Production workloads",
+    "clusterName": "c-m-abc123",
+    "resourceQuota": { ... },
+    "containerDefaultResourceLimit": { ... }
+  },
+  "status": {
+    "backingNamespace": "p-xyz789",
+    "conditions": [
+      {
+        "type": "InitialRolesPopulated",
+        "status": "True"
+      }
+    ]
+  }
+}
+```
+
+## List Projects
+
+Retrieve all projects:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects
+```
+
+### Filter by Cluster
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  "https://rancher-server/v3/projects?clusterId=c-m-abc123"
+```
+
+## Get Project
+
+Retrieve a specific project:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789
+```
+
+## Update Project
+
+Update project configuration:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "displayName": "Production - Updated",
+    "description": "Updated production environment",
+    "resourceQuota": {
+      "limit": {
+        "limitsCpu": "6000m",
+        "limitsMemory": "12Gi"
+      }
+    }
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789
+```
+
+## Delete Project
+
+Delete a project:
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789
+```
+
+<Warning>
+  Deleting a project will also delete all namespaces and resources within it.
+</Warning>
+
+## Multi-Tenancy with Projects
+
+### Project Role Template Bindings (PRTB)
+
+Grant users or groups access to a project:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "projectRoleTemplateBinding",
+    "projectName": "c-m-abc123:p-xyz789",
+    "userName": "user-abcde",
+    "roleTemplateName": "project-member"
+  }' \
+  https://rancher-server/v3/projectroletemplatebindings
+```
+
+### Available Project Roles
+
+<ParamField path="project-owner" type="role">
+  Full administrative access to the project
+</ParamField>
+
+<ParamField path="project-member" type="role">
+  Standard member access - can manage workloads and most resources
+</ParamField>
+
+<ParamField path="read-only" type="role">
+  Read-only access to project resources
+</ParamField>
+
+## Namespace Management
+
+### List Project Namespaces
+
+Get all namespaces in a project:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123/namespaces?projectId=p-xyz789
+```
+
+### Move Namespace to Project
+
+Assign a namespace to a project:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "projectId": "c-m-abc123:p-xyz789"
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123/namespaces/my-namespace
+```
+
+### Create Namespace in Project
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "namespace",
+    "name": "my-app",
+    "projectId": "c-m-abc123:p-xyz789"
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123/namespaces
+```
+
+## Resource Quotas
+
+### Understanding Resource Quotas
+
+Projects support two levels of resource quotas:
+
+1. **Project-level quota**: Total resources across all namespaces
+2. **Namespace-level quota**: Default quota for each namespace
+
+### Example: Setting Quotas
+
+```json
+{
+  "resourceQuota": {
+    "limit": {
+      "limitsCpu": "10000m",
+      "limitsMemory": "20Gi",
+      "requestsCpu": "5000m",
+      "requestsMemory": "10Gi",
+      "pods": "100",
+      "services": "20",
+      "persistentVolumeClaims": "10"
+    }
+  },
+  "namespaceDefaultResourceQuota": {
+    "limit": {
+      "limitsCpu": "2000m",
+      "limitsMemory": "4Gi",
+      "requestsCpu": "1000m",
+      "requestsMemory": "2Gi"
+    }
+  }
+}
+```
+
+### Container Default Limits
+
+Set default resource limits for all containers:
+
+```json
+{
+  "containerDefaultResourceLimit": {
+    "limitsCpu": "500m",
+    "limitsMemory": "512Mi",
+    "requestsCpu": "100m",
+    "requestsMemory": "128Mi"
+  }
+}
+```
+
+<Info>
+  Container defaults apply when workloads don't specify resource requests/limits.
+</Info>
+
+## Project Isolation
+
+### Network Policies
+
+Enable network isolation between projects:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enableNetworkPolicy": true
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123
+```
+
+When enabled:
+- Pods in different projects cannot communicate by default
+- Intra-project communication is allowed
+- Explicit NetworkPolicies can override defaults
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Organize by Environment">
+    Create separate projects for different environments:
+    - `production`
+    - `staging`
+    - `development`
+  </Accordion>
+
+  <Accordion title="Set Resource Quotas">
+    Always define resource quotas to prevent resource exhaustion:
+    - Project-level quotas for overall limits
+    - Namespace defaults for consistent allocation
+    - Container defaults to ensure all workloads have limits
+  </Accordion>
+
+  <Accordion title="Use Meaningful Names">
+    Choose descriptive names that indicate:
+    - Environment (prod, staging, dev)
+    - Team or application (team-frontend, app-backend)
+    - Purpose (ci-cd, monitoring)
+  </Accordion>
+
+  <Accordion title="Implement RBAC Early">
+    Grant least-privilege access:
+    - Use `project-member` for developers
+    - Reserve `project-owner` for leads
+    - Use `read-only` for monitoring tools
+  </Accordion>
+
+  <Accordion title="Enable Network Policies">
+    Enable network isolation for production projects to:
+    - Prevent unauthorized access
+    - Comply with security requirements
+    - Isolate sensitive workloads
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring Projects
+
+### Check Resource Usage
+
+Get current resource usage for a project:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789?include=usage
+```
+
+### Watch Project Events
+
+Monitor project-level events:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/events
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Workloads" icon="layer-group" href="/api/resources/workloads">
+    Deploy applications in projects
+  </Card>
+  <Card title="RBAC" icon="shield" href="/guides/rbac">
+    Configure role-based access control
+  </Card>
+  <Card title="Namespaces" icon="folder" href="/guides/namespaces">
+    Manage namespaces within projects
+  </Card>
+</CardGroup>

@@ -1,0 +1,387 @@
+---
+title: Single Node Installation
+description: Install Rancher on a single Docker node for development and testing
+---
+
+For development, testing, or proof-of-concept environments, Rancher can be installed on a single node using Docker. This simplified installation method runs Rancher directly in a Docker container without requiring a Kubernetes cluster.
+
+<Warning>
+Single-node installations are NOT recommended for production use. Use [high availability deployment](/configuration/high-availability) for production workloads.
+</Warning>
+
+## Quick Start
+
+The fastest way to get Rancher running:
+
+```bash
+sudo docker run -d --restart=unless-stopped -p 80:80 -p 443:443 --privileged rancher/rancher
+```
+
+Open your browser to `https://localhost` to access Rancher.
+
+## Prerequisites
+
+### Operating System Requirements
+
+Supported operating systems:
+- Ubuntu 20.04+, 22.04+
+- RHEL/CentOS 7.x, 8.x, 9.x
+- SLES 15 SP2+
+- Debian 10+, 11+
+- Rocky Linux 8+, 9+
+- Oracle Linux 7.x, 8.x, 9.x
+
+Refer to the [Support Matrix](https://rancher.com/support-matrix/) for specific OS versions for each Rancher version.
+
+### Hardware Requirements
+
+**Minimum requirements:**
+- 2 vCPUs
+- 4 GB RAM
+- 20 GB disk space
+
+**Recommended for testing:**
+- 4 vCPUs
+- 8 GB RAM
+- 50 GB disk space
+
+### Software Requirements
+
+- Docker 20.10+ or higher
+- Internet connectivity (for image downloads and updates)
+
+## Installation
+
+<Steps>
+
+### Install Docker
+
+Install Docker on your host system:
+
+**Ubuntu/Debian:**
+```bash
+curl https://releases.rancher.com/install-docker/20.10.sh | sh
+```
+
+**RHEL/CentOS/Rocky:**
+```bash
+curl https://releases.rancher.com/install-docker/20.10.sh | sh
+sudo systemctl enable docker
+sudo systemctl start docker
+```
+
+Verify Docker installation:
+```bash
+sudo docker version
+```
+
+### Run Rancher Container
+
+Run Rancher in a Docker container:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  rancher/rancher:latest
+```
+
+**Command breakdown:**
+- `-d` - Run in detached mode (background)
+- `--restart=unless-stopped` - Automatically restart on failure or system reboot
+- `-p 80:80 -p 443:443` - Expose HTTP and HTTPS ports
+- `--privileged` - Required for Rancher to manage containers
+- `rancher/rancher:latest` - Use the latest stable version
+
+### Access Rancher UI
+
+Wait a few minutes for Rancher to start, then access the UI:
+
+```
+https://<SERVER_IP>
+```
+
+For local testing:
+```
+https://localhost
+```
+
+### Get Bootstrap Password
+
+Retrieve the initial bootstrap password:
+
+```bash
+sudo docker logs <container_id> 2>&1 | grep "Bootstrap Password:"
+```
+
+Or get the container ID first:
+```bash
+sudo docker ps
+sudo docker logs <container_id> 2>&1 | grep "Bootstrap Password:"
+```
+
+### Complete Initial Setup
+
+1. Accept the self-signed certificate warning in your browser
+2. Enter the bootstrap password
+3. Set a new admin password
+4. Configure the Rancher server URL (use the server's IP or domain name)
+
+</Steps>
+
+## Advanced Configuration
+
+### Using a Specific Version
+
+Specify a particular Rancher version:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  rancher/rancher:v2.13.3
+```
+
+### Persistent Data Storage
+
+Mount a volume to persist Rancher data:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  -v /opt/rancher:/var/lib/rancher \
+  rancher/rancher:latest
+```
+
+This ensures data survives container restarts and upgrades.
+
+### Custom SSL Certificates
+
+Use your own SSL certificates:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  -v /etc/rancher/ssl/cert.pem:/etc/rancher/ssl/cert.pem \
+  -v /etc/rancher/ssl/key.pem:/etc/rancher/ssl/key.pem \
+  rancher/rancher:latest \
+  --no-cacerts
+```
+
+### Private CA Certificates
+
+If using certificates from a private CA:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  -v /etc/rancher/ssl/cacerts.pem:/etc/rancher/ssl/cacerts.pem \
+  rancher/rancher:latest
+```
+
+### Behind a Proxy
+
+Configure proxy settings:
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  -e HTTP_PROXY="http://proxy.example.com:8080" \
+  -e HTTPS_PROXY="http://proxy.example.com:8080" \
+  -e NO_PROXY="localhost,127.0.0.1,10.0.0.0/8" \
+  rancher/rancher:latest
+```
+
+### Air-Gapped Installation
+
+For environments without internet access:
+
+```bash
+# Save Rancher image
+sudo docker pull rancher/rancher:v2.13.3
+sudo docker save rancher/rancher:v2.13.3 > rancher-image.tar
+
+# Transfer to air-gapped host and load
+sudo docker load < rancher-image.tar
+
+# Run Rancher
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  rancher/rancher:v2.13.3
+```
+
+## Container Management
+
+### View Logs
+
+View Rancher container logs:
+
+```bash
+sudo docker logs -f <container_id>
+```
+
+### Stop Rancher
+
+Stop the Rancher container:
+
+```bash
+sudo docker stop <container_id>
+```
+
+### Start Rancher
+
+Restart a stopped container:
+
+```bash
+sudo docker start <container_id>
+```
+
+### Remove Rancher
+
+Completely remove Rancher:
+
+```bash
+sudo docker stop <container_id>
+sudo docker rm <container_id>
+```
+
+To also remove data:
+```bash
+sudo rm -rf /var/lib/rancher
+```
+
+## Upgrading Single-Node Installation
+
+<Steps>
+
+### Create a Backup
+
+Back up the Rancher data directory:
+
+```bash
+sudo docker stop <container_id>
+sudo tar czf rancher-backup-$(date +%Y%m%d).tar.gz /var/lib/rancher
+sudo docker start <container_id>
+```
+
+### Pull New Version
+
+Download the new Rancher version:
+
+```bash
+sudo docker pull rancher/rancher:v2.13.3
+```
+
+### Stop and Remove Old Container
+
+```bash
+sudo docker stop <container_id>
+sudo docker rm <container_id>
+```
+
+### Run New Version
+
+```bash
+sudo docker run -d --restart=unless-stopped \
+  -p 80:80 -p 443:443 \
+  --privileged \
+  -v /opt/rancher:/var/lib/rancher \
+  rancher/rancher:v2.13.3
+```
+
+</Steps>
+
+## Limitations
+
+Single-node Docker installations have several limitations:
+
+- **No high availability** - Single point of failure
+- **No automatic failover** - Downtime during host failures
+- **Limited scalability** - Cannot scale beyond one node
+- **Manual upgrades** - No rolling updates
+- **No Kubernetes integration** - Does not leverage Kubernetes features
+- **Not production-ready** - Not covered under Rancher Support SLA
+
+<Note>
+For production use, migrate to a [Kubernetes-based installation](/configuration/helm-installation) with [high availability](/configuration/high-availability).
+</Note>
+
+## Resource Requirements by Use Case
+
+### Development/Testing
+- Managing 1-5 clusters
+- 2 vCPUs, 4 GB RAM, 20 GB disk
+
+### Demo/POC
+- Managing 5-15 clusters
+- 4 vCPUs, 8 GB RAM, 50 GB disk
+
+### Small Production (Not Recommended)
+- Managing 15-50 clusters
+- 8 vCPUs, 16 GB RAM, 100 GB disk
+- Consider migrating to HA deployment
+
+## Troubleshooting
+
+### Container Won't Start
+
+Check logs for errors:
+```bash
+sudo docker logs <container_id>
+```
+
+Common issues:
+- Port conflicts (80/443 already in use)
+- Insufficient permissions
+- Docker daemon not running
+
+### Cannot Access UI
+
+Verify container is running:
+```bash
+sudo docker ps | grep rancher
+```
+
+Check firewall rules:
+```bash
+# Ubuntu/Debian
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+
+# RHEL/CentOS
+sudo firewall-cmd --add-port=80/tcp --permanent
+sudo firewall-cmd --add-port=443/tcp --permanent
+sudo firewall-cmd --reload
+```
+
+### Performance Issues
+
+Check container resource usage:
+```bash
+sudo docker stats <container_id>
+```
+
+Increase host resources if CPU or memory is constrained.
+
+## Best Practices
+
+- Use persistent volumes (`-v /opt/rancher:/var/lib/rancher`) to preserve data
+- Set `--restart=unless-stopped` to survive reboots
+- Regularly backup the `/var/lib/rancher` directory
+- Pin to a specific version tag for reproducibility
+- Use SSL certificates from a trusted CA for production-like testing
+- Monitor resource usage and scale host resources as needed
+- Test upgrades in a separate environment first
+
+## Next Steps
+
+- Import existing Kubernetes clusters
+- Create new downstream clusters
+- Explore Rancher features and capabilities
+- Plan migration to [high availability deployment](/configuration/high-availability) for production use
+- Review [backup and restore](/clusters/operations/backup-restore) procedures

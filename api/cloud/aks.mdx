@@ -1,0 +1,283 @@
+---
+title: Azure Kubernetes Service (AKS) Integration
+description: Configure and manage AKS clusters with Rancher's AKS driver
+---
+
+## Overview
+
+Rancher provides native integration with Azure Kubernetes Service (AKS) through the `ClusterDriverAKS` driver. This allows you to provision, manage, and import AKS clusters directly from Rancher.
+
+## Cluster Driver
+
+**Driver Name:** `AKS`
+
+Defined in: `pkg/apis/management.cattle.io/v3/cluster_types.go:82`
+
+```go
+ClusterDriverAKS = "AKS"
+```
+
+## Configuration Spec
+
+AKS clusters are configured using the `AKSClusterConfigSpec` structure in the cluster specification.
+
+### Cluster Spec Fields
+
+```yaml
+spec:
+  aksConfig:
+    azureCredentialSecret: string      # Reference to Azure credential secret
+    clusterName: string                 # Name of the AKS cluster
+    resourceGroup: string               # Azure resource group
+    resourceLocation: string            # Azure region (e.g., eastus, westus2)
+    kubernetesVersion: string           # Kubernetes version
+    dnsPrefix: string                   # DNS prefix for the cluster
+    nodePools: []                       # Node pool configurations
+```
+
+### Authentication Configuration
+
+```yaml
+aksConfig:
+  azureCredentialSecret: string       # Secret containing Azure credentials
+  authBaseUrl: string                 # Azure Active Directory endpoint
+  baseUrl: string                     # Azure Resource Manager endpoint
+```
+
+**Azure Credential Secret Format:**
+The credential secret (stored in `namespace.GlobalNamespace`) contains:
+- `azurecredentialConfig-tenantId`: Azure AD tenant ID
+- `azurecredentialConfig-subscriptionId`: Azure subscription ID
+- `azurecredentialConfig-clientId`: Service principal client ID
+- `azurecredentialConfig-clientSecret`: Service principal secret
+- `azurecredentialConfig-environment`: Azure environment (AzurePublicCloud, AzureChinaCloud, AzureUSGovernmentCloud)
+
+Source: `pkg/api/norman/customization/aks/handler.go:248-252`
+
+### Networking Configuration
+
+```yaml
+aksConfig:
+  virtualNetwork: string                    # Virtual network name
+  virtualNetworkResourceGroup: string       # Resource group for VNet
+  subnet: string                           # Subnet name
+  networkPlugin: string                    # azure or kubenet
+  networkPolicy: string                    # azure or calico
+  dnsServiceIp: string                     # DNS service IP address
+  serviceCidr: string                      # Service CIDR
+  podCidr: string                          # Pod CIDR (kubenet only)
+  dockerBridgeCidr: string                 # Docker bridge CIDR
+  loadBalancerSku: string                  # basic or standard
+  outboundType: string                     # loadBalancer or userDefinedRouting
+```
+
+### Node Pool Configuration
+
+```yaml
+aksConfig:
+  nodePools:
+    - name: string                  # Node pool name
+      count: int                    # Number of nodes
+      vmSize: string                # Azure VM size (e.g., Standard_D2s_v3)
+      osDiskSizeGB: int            # OS disk size in GB
+      mode: string                 # System or User
+      orchestratorVersion: string  # Kubernetes version for this pool
+      availabilityZones: []string  # Availability zones
+      enableAutoScaling: bool      # Enable autoscaling
+      minCount: int                # Minimum node count
+      maxCount: int                # Maximum node count
+      maxPods: int                 # Maximum pods per node
+      osDiskType: string           # Managed or Ephemeral
+      osType: string               # Linux or Windows
+```
+
+### Security Configuration
+
+```yaml
+aksConfig:
+  privateCluster: bool              # Enable private cluster
+  privateDnsZone: string           # Private DNS zone resource ID
+  authorizedIpRanges: []string     # Authorized IP ranges for API server
+  managedIdentity: bool            # Use managed identity
+  userAssignedIdentity: string     # User-assigned managed identity
+  linuxAdminUsername: string       # Linux admin username
+  sshPublicKey: string             # SSH public key
+```
+
+### Advanced Features
+
+```yaml
+aksConfig:
+  httpApplicationRouting: bool                # Enable HTTP application routing
+  monitoring: bool                           # Enable Azure Monitor
+  logAnalyticsWorkspaceGroup: string         # Log Analytics workspace resource group
+  logAnalyticsWorkspaceName: string          # Log Analytics workspace name
+  tags: {}                                   # Resource tags
+  nodeResourceGroup: string                  # Node resource group name
+  imported: bool                             # Whether cluster is imported
+```
+
+## API Integration
+
+The AKS handler provides API endpoints for interacting with Azure services:
+
+**Handler Location:** `pkg/api/norman/customization/aks/handler.go`
+
+### Available Endpoints
+
+- **aksCheckCredentials**: Validate Azure credentials (POST)
+- **aksVersions**: List available Kubernetes versions
+- **aksUpgrades**: List available upgrade versions for a cluster
+- **aksVirtualNetworks**: List virtual networks
+- **aksClusters**: List existing AKS clusters
+- **aksVMSizes**: List available VM sizes (v1)
+- **aksVMSizesV2**: List available VM sizes (v2)
+- **aksLocations**: List Azure locations
+- **aksRegions**: List Azure regions
+
+Source: `pkg/api/norman/customization/aks/handler.go:100-159`
+
+### Credential Authentication
+
+The handler supports two authentication methods:
+
+1. **Cloud Credential ID**: Pass `cloudCredentialId` as a query parameter
+2. **Direct Credentials**: POST credentials in request body
+
+```json
+{
+  "tenantId": "string",
+  "subscriptionId": "string",
+  "clientId": "string",
+  "clientSecret": "string",
+  "environment": "AzurePublicCloud",
+  "region": "eastus"
+}
+```
+
+Source: `pkg/api/norman/customization/aks/handler.go:318-354`
+
+## Cluster Status
+
+The AKS cluster status is tracked in `status.aksStatus`:
+
+```yaml
+status:
+  driver: AKS
+  aksStatus:
+    upstreamSpec:           # Copy of the AKS config spec
+    privateRequiresTunnel:  # Whether private clusters require tunnel
+    rbacEnabled:            # Whether RBAC is enabled
+```
+
+Source: `pkg/apis/management.cattle.io/v3/cluster_types.go:405-409`
+
+## Azure Environments
+
+Rancher supports multiple Azure cloud environments:
+
+- **AzurePublicCloud** (default): `cloud.AzurePublic`
+- **AzureChinaCloud**: `cloud.AzureChina`
+- **AzureUSGovernmentCloud**: `cloud.AzureGovernment`
+
+Source: `pkg/api/norman/customization/aks/handler.go:379-388`
+
+## Provisioning Workflow
+
+1. **Create Cluster Object**: Define cluster with `spec.aksConfig`
+2. **Credential Validation**: System validates Azure credentials
+3. **Resource Creation**: Azure resources are provisioned:
+   - Resource group (if needed)
+   - Virtual network and subnet (if not provided)
+   - AKS cluster
+   - Node pools
+4. **Status Updates**: Cluster status reflects provisioning state
+5. **Agent Deployment**: Rancher cluster agent is deployed
+6. **Ready State**: Cluster becomes active and manageable
+
+## Importing Existing Clusters
+
+To import an existing AKS cluster:
+
+```yaml
+spec:
+  aksConfig:
+    imported: true
+    azureCredentialSecret: "cattle-global-data:cc-xxxxx"
+    clusterName: "existing-cluster-name"
+    resourceGroup: "existing-resource-group"
+    resourceLocation: "eastus"
+```
+
+When `imported: true`, Rancher registers the cluster without modifying its configuration.
+
+## Best Practices
+
+### Network Configuration
+- Use Azure CNI (`networkPlugin: azure`) for advanced networking features
+- Configure `authorizedIpRanges` to restrict API server access
+- Use private clusters for enhanced security
+
+### Node Pools
+- Separate system and user workloads using different node pools
+- Enable autoscaling for dynamic workload handling
+- Use availability zones for high availability
+
+### Security
+- Use managed identities instead of service principals when possible
+- Enable monitoring and log analytics for observability
+- Rotate SSH keys and service principal credentials regularly
+
+### Cost Optimization
+- Use appropriate VM sizes for workload requirements
+- Enable autoscaling to scale down during low usage
+- Use spot instances for non-critical workloads
+
+## Troubleshooting
+
+### Credential Issues
+
+If you receive a `403` error, verify:
+- Service principal has `Contributor` role on subscription
+- Tenant ID matches the subscription
+- Credentials are not expired
+
+Source: `pkg/api/norman/customization/aks/handler.go:162-213`
+
+### Private Cluster Access
+
+For private clusters, Rancher determines if tunneling is required:
+- `privateRequiresTunnel: true`: Cluster agent tunnel is required
+- `privateRequiresTunnel: false`: Direct API access is possible
+
+### Networking Conflicts
+
+Ensure that:
+- Service CIDR doesn't overlap with VNet CIDR
+- Pod CIDR doesn't overlap with service or VNet CIDRs
+- DNS service IP is within service CIDR
+
+## Related Resources
+
+- [Azure Kubernetes Service Documentation](https://docs.microsoft.com/en-us/azure/aks/)
+- [Azure CNI Networking](https://docs.microsoft.com/en-us/azure/aks/configure-azure-cni)
+- [AKS Operator GitHub](https://github.com/rancher/aks-operator)
+
+## API Reference
+
+### Cluster Type Definition
+
+Location: `pkg/apis/management.cattle.io/v3/cluster_types.go:161`
+
+```go
+type ClusterSpec struct {
+    AKSConfig *aksv1.AKSClusterConfigSpec `json:"aksConfig,omitempty"`
+    // ... other fields
+}
+```
+
+### AKS Handler Registration
+
+The AKS API handler is registered in the Norman API server and handles all AKS-related API requests.
+
+Location: `pkg/api/norman/customization/aks/handler.go:52-60`

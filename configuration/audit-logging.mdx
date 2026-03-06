@@ -1,0 +1,549 @@
+---
+title: Audit Logging
+description: Configure audit logging to track API requests and maintain compliance in your Rancher deployment
+---
+
+Rancher's audit logging feature records all API requests made to the Rancher API server, providing an audit trail for security, compliance, and troubleshooting purposes.
+
+## Overview
+
+Audit logs capture:
+- API request metadata (URI, method, user, timestamp)
+- Request headers and response headers
+- Request body and response body (at higher audit levels)
+- Authentication information
+- Response status codes
+
+Audit logs can be streamed to a sidecar container or written to a host path volume.
+
+## Configuration Methods
+
+### Via CLI Flags
+
+Configure audit logging using command-line flags when starting Rancher:
+
+```bash
+rancher \
+  --enable-audit-log \
+  --audit-log-path /var/log/auditlog/rancher-api-audit.log \
+  --audit-level 1 \
+  --audit-log-maxage 10 \
+  --audit-log-maxbackup 10 \
+  --audit-log-maxsize 100
+```
+
+### Via Environment Variables
+
+Set audit logging configuration using environment variables:
+
+```bash
+export AUDIT_LOG_ENABLED=true
+export AUDIT_LOG_PATH=/var/log/auditlog/rancher-api-audit.log
+export AUDIT_LEVEL=1
+export AUDIT_LOG_MAXAGE=10
+export AUDIT_LOG_MAXBACKUP=10
+export AUDIT_LOG_MAXSIZE=100
+```
+
+### Via Helm Chart
+
+Configure audit logging in your Helm values file:
+
+```yaml
+auditLog:
+  enabled: true
+  level: 1
+  destination: sidecar  # or "hostpath"
+  hostPath: /var/log/rancher/audit/
+  maxAge: 10
+  maxBackup: 10
+  maxSize: 100
+```
+
+Deploy with Helm:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set auditLog.enabled=true \
+  --set auditLog.level=1
+```
+
+## Configuration Options
+
+### Enable Audit Log
+
+**CLI Flag**: `--enable-audit-log`  
+**Environment Variable**: `AUDIT_LOG_ENABLED`  
+**Helm Value**: `auditLog.enabled`  
+**Default**: `false`  
+**Source**: main.go:144
+
+Enables the Rancher audit log system.
+
+```bash
+--enable-audit-log
+```
+
+### Audit Log Path
+
+**CLI Flag**: `--audit-log-path`  
+**Environment Variable**: `AUDIT_LOG_PATH`  
+**Helm Value**: `auditLog.hostPath`  
+**Default**: `/var/log/auditlog/rancher-api-audit.log`  
+**Source**: main.go:110
+
+Specifies the file path where audit logs will be written.
+
+```bash
+--audit-log-path /var/log/auditlog/rancher-api-audit.log
+```
+
+### Audit Level
+
+**CLI Flag**: `--audit-level`  
+**Environment Variable**: `AUDIT_LEVEL`  
+**Helm Value**: `auditLog.level`  
+**Default**: `0`  
+**Source**: main.go:138
+
+Controls the verbosity of audit logs. Higher levels include more information.
+
+#### Level 0 - Metadata Only
+
+Logs only request metadata:
+- Request URI
+- HTTP method
+- User identity
+- Timestamp
+- Response status
+
+```bash
+--audit-level 0
+```
+
+**Example log entry**:
+```json
+{
+  "timestamp": "2024-03-15T10:30:00Z",
+  "user": "admin",
+  "method": "GET",
+  "uri": "/v3/clusters",
+  "status": 200
+}
+```
+
+#### Level 1 - Metadata and Headers
+
+Includes Level 0 plus:
+- Request headers
+- Response headers
+
+```bash
+--audit-level 1
+```
+
+#### Level 2 - Headers and Request Body
+
+Includes Level 1 plus:
+- Request body
+
+```bash
+--audit-level 2
+```
+
+<Warning>
+Level 2 may log sensitive data in request bodies. Ensure proper log access controls.
+</Warning>
+
+#### Level 3 - Full Logging
+
+Includes Level 2 plus:
+- Response body
+
+```bash
+--audit-level 3
+```
+
+<Warning>
+Level 3 generates very large log files and may log sensitive data. Use only when necessary for debugging.
+</Warning>
+
+### Log Rotation Options
+
+#### Max Age
+
+**CLI Flag**: `--audit-log-maxage`  
+**Environment Variable**: `AUDIT_LOG_MAXAGE`  
+**Helm Value**: `auditLog.maxAge`  
+**Default**: `10`  
+**Source**: main.go:117
+
+Maximum number of days to retain old audit log files.
+
+```bash
+--audit-log-maxage 10
+```
+
+#### Max Backup
+
+**CLI Flag**: `--audit-log-maxbackup`  
+**Environment Variable**: `AUDIT_LOG_MAXBACKUP`  
+**Helm Value**: `auditLog.maxBackup`  
+**Default**: `10`  
+**Source**: main.go:124
+
+Maximum number of audit log files to retain.
+
+```bash
+--audit-log-maxbackup 10
+```
+
+#### Max Size
+
+**CLI Flag**: `--audit-log-maxsize`  
+**Environment Variable**: `AUDIT_LOG_MAXSIZE`  
+**Helm Value**: `auditLog.maxSize`  
+**Default**: `100` (megabytes)  
+**Source**: main.go:131
+
+Maximum size in megabytes of the audit log file before it gets rotated.
+
+```bash
+--audit-log-maxsize 100
+```
+
+## Audit Log Destinations
+
+### Sidecar Container (Recommended)
+
+When using the sidecar destination, audit logs are written to a sidecar container that runs alongside Rancher.
+
+```yaml
+auditLog:
+  enabled: true
+  destination: sidecar
+  level: 1
+```
+
+**Helm Values** (chart/values.yaml:21):
+- `auditLog.destination: sidecar`
+- `auditLog.image.repository: rancher/mirrored-bci-micro`
+- `auditLog.image.tag: 15.6.24.2`
+- `auditLog.resources: {}` - Set resource requests/limits for the sidecar
+
+**View sidecar logs**:
+```bash
+kubectl logs -n cattle-system deployment/rancher -c rancher-audit-log
+```
+
+**Advantages**:
+- Logs are accessible via kubectl
+- No host filesystem dependencies
+- Works on any Kubernetes platform
+- Easy to integrate with logging systems
+
+### Host Path Volume
+
+When using the hostPath destination, audit logs are written directly to the host filesystem.
+
+```yaml
+auditLog:
+  enabled: true
+  destination: hostPath
+  hostPath: /var/log/rancher/audit/
+  level: 1
+  maxAge: 10
+  maxBackup: 10
+  maxSize: 100
+```
+
+**Access logs**:
+```bash
+# On the node running Rancher
+ls -lh /var/log/rancher/audit/
+tail -f /var/log/rancher/audit/rancher-api-audit.log
+```
+
+**Advantages**:
+- Direct filesystem access
+- Can use host-based log rotation tools
+- Persistent across pod restarts
+
+**Considerations**:
+- Requires host filesystem access
+- Node affinity may be needed for log persistence
+- May not work on all Kubernetes platforms
+
+## Audit Log Format
+
+Audit logs are written in JSON format with the following structure:
+
+```json
+{
+  "auditID": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "requestURI": "/v3/clusters/c-m-12345678",
+  "verb": "update",
+  "user": {
+    "username": "admin",
+    "uid": "user-12345",
+    "groups": ["system:authenticated"]
+  },
+  "sourceIPs": ["192.168.1.100"],
+  "userAgent": "rancher/v2.8.0",
+  "objectRef": {
+    "resource": "clusters",
+    "namespace": "",
+    "name": "c-m-12345678",
+    "apiVersion": "management.cattle.io/v3"
+  },
+  "responseStatus": {
+    "code": 200
+  },
+  "requestReceivedTimestamp": "2024-03-15T10:30:00.000Z",
+  "stageTimestamp": "2024-03-15T10:30:00.100Z",
+  "annotations": {
+    "authorization.k8s.io/decision": "allow",
+    "authorization.k8s.io/reason": ""
+  }
+}
+```
+
+### Key Fields
+
+| Field | Description |
+|-------|-------------|
+| `auditID` | Unique identifier for the audit event |
+| `requestURI` | The API endpoint that was accessed |
+| `verb` | HTTP method (GET, POST, PUT, DELETE, etc.) |
+| `user` | Information about the authenticated user |
+| `sourceIPs` | IP addresses of the client |
+| `userAgent` | Client user agent string |
+| `objectRef` | Details about the Kubernetes resource |
+| `responseStatus` | HTTP response status code |
+| `requestReceivedTimestamp` | When the request was received |
+| `stageTimestamp` | When the audit event was generated |
+
+## Audit Policy
+
+Rancher uses an internal audit policy to determine what gets logged. The policy is configured based on the audit level:
+
+- **Level 0**: Metadata stage only
+- **Level 1**: Metadata stage with headers
+- **Level 2**: RequestResponse stage without response body
+- **Level 3**: Full RequestResponse stage
+
+You cannot currently customize the audit policy beyond setting the audit level.
+
+## Common Use Cases
+
+### Compliance Auditing
+
+For compliance requirements, use Level 1 with long retention:
+
+```yaml
+auditLog:
+  enabled: true
+  level: 1
+  destination: sidecar
+  maxAge: 365  # Keep logs for 1 year
+  maxBackup: 50
+  maxSize: 100
+```
+
+### Security Investigation
+
+For security investigations, temporarily enable Level 2 or 3:
+
+```yaml
+auditLog:
+  enabled: true
+  level: 2
+  destination: sidecar
+  maxAge: 7
+  maxBackup: 10
+  maxSize: 500
+```
+
+<Warning>
+Revert to lower levels after investigation to reduce log volume.
+</Warning>
+
+### Production Monitoring
+
+For ongoing production monitoring, use Level 1:
+
+```yaml
+auditLog:
+  enabled: true
+  level: 1
+  destination: sidecar
+  maxAge: 30
+  maxBackup: 20
+  maxSize: 100
+```
+
+## Integration with Log Management
+
+### Forwarding to Splunk
+
+Use a log forwarder to send audit logs to Splunk:
+
+```yaml
+auditLog:
+  enabled: true
+  destination: sidecar
+  level: 1
+
+# In a separate logging configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      path /var/log/containers/rancher-*rancher-audit-log*.log
+      pos_file /var/log/rancher-audit.log.pos
+      tag rancher.audit
+      <parse>
+        @type json
+      </parse>
+    </source>
+    <match rancher.audit>
+      @type splunk_hec
+      hec_host splunk.example.com
+      hec_port 8088
+      hec_token YOUR_TOKEN
+    </match>
+```
+
+### Forwarding to Elasticsearch
+
+Forward logs using Filebeat or Fluentd:
+
+```yaml
+auditLog:
+  enabled: true
+  destination: hostPath
+  hostPath: /var/log/rancher/audit/
+  level: 1
+
+# Filebeat configuration
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/rancher/audit/*.log
+  json.keys_under_root: true
+  json.add_error_key: true
+
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+  index: "rancher-audit-%{+yyyy.MM.dd}"
+```
+
+## Performance Considerations
+
+### Log Volume
+
+Audit log volume varies significantly by level:
+
+| Level | Typical Size per Request | Daily Volume (1000 req/min) |
+|-------|-------------------------|-----------------------------|
+| 0 | ~500 bytes | ~720 MB |
+| 1 | ~2 KB | ~2.8 GB |
+| 2 | ~10 KB | ~14 GB |
+| 3 | ~50 KB | ~70 GB |
+
+### Resource Impact
+
+- **Level 0-1**: Minimal impact (less than 1% CPU overhead)
+- **Level 2**: Moderate impact (2-5% CPU overhead)
+- **Level 3**: Significant impact (5-10% CPU overhead)
+
+### Sidecar Resources
+
+Set appropriate resource limits for the audit log sidecar:
+
+```yaml
+auditLog:
+  enabled: true
+  destination: sidecar
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+```
+
+## Troubleshooting
+
+### Audit Logs Not Appearing
+
+1. **Check if audit logging is enabled**:
+   ```bash
+   kubectl get deployment rancher -n cattle-system -o yaml | grep AUDIT
+   ```
+
+2. **Verify the audit log sidecar is running**:
+   ```bash
+   kubectl get pods -n cattle-system -l app=rancher
+   kubectl logs -n cattle-system deployment/rancher -c rancher-audit-log
+   ```
+
+3. **Check Rancher logs for errors**:
+   ```bash
+   kubectl logs -n cattle-system deployment/rancher -c rancher | grep -i audit
+   ```
+
+### Log Rotation Not Working
+
+Log rotation only applies when using hostPath destination. For sidecar destination, use a log management solution to archive old logs.
+
+### Disk Space Issues
+
+If audit logs are consuming too much disk space:
+
+1. **Reduce audit level**:
+   ```bash
+   helm upgrade rancher rancher-latest/rancher \
+     --reuse-values \
+     --set auditLog.level=0
+   ```
+
+2. **Reduce retention**:
+   ```bash
+   helm upgrade rancher rancher-latest/rancher \
+     --reuse-values \
+     --set auditLog.maxAge=7 \
+     --set auditLog.maxBackup=5
+   ```
+
+3. **Reduce max size**:
+   ```bash
+   helm upgrade rancher rancher-latest/rancher \
+     --reuse-values \
+     --set auditLog.maxSize=50
+   ```
+
+## Best Practices
+
+1. **Start with Level 1**: Provides good visibility without excessive overhead
+2. **Use Sidecar Destination**: Easier to manage in Kubernetes environments
+3. **Configure Log Forwarding**: Send logs to a centralized log management system
+4. **Set Appropriate Retention**: Balance compliance needs with storage costs
+5. **Monitor Log Volume**: Set up alerts for excessive log growth
+6. **Secure Log Access**: Restrict access to audit logs using RBAC
+7. **Regular Review**: Periodically review audit logs for suspicious activity
+8. **Test Before Production**: Verify audit logging in a test environment first
+
+## Next Steps
+
+- [Server Configuration](/configuration/server-configuration) - Configure Rancher server options
+- [SSL/TLS Configuration](/configuration/ssl-tls) - Set up certificates
+- [Security Best Practices](/architecture/security) - Secure your Rancher deployment

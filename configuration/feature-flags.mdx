@@ -1,0 +1,571 @@
+---
+title: Feature Flags
+description: Control Rancher features using feature flags to enable or disable specific functionality
+---
+
+Rancher uses feature flags to control the availability of specific features. Feature flags allow you to enable experimental features, disable unwanted functionality, or control which features are available in your deployment.
+
+## Overview
+
+Feature flags in Rancher are managed through the `Feature` CRD (Custom Resource Definition) in the `management.cattle.io/v3` API group. Each feature has:
+
+- **Name**: Unique identifier for the feature
+- **Description**: What the feature does
+- **Default Value**: Whether the feature is enabled by default
+- **Dynamic**: Whether the feature can be toggled without restarting Rancher
+- **Prime**: Whether the feature is only available in Rancher Prime
+
+## Configuring Feature Flags
+
+### Via CLI Flag
+
+Set feature flags at startup using the `--features` flag:
+
+```bash
+rancher --features="feature-name=true,another-feature=false"
+```
+
+You can also use the `CATTLE_FEATURES` environment variable:
+
+```bash
+export CATTLE_FEATURES="feature-name=true,another-feature=false"
+```
+
+**Source**: main.go:156
+
+### Via Kubernetes API
+
+Feature flags can be modified at runtime using kubectl:
+
+```bash
+# Get current feature flag state
+kubectl get feature <feature-name> -o yaml
+
+# Enable a feature
+kubectl patch feature <feature-name> --type='json' -p='[{"op": "replace", "path": "/spec/value", "value": true}]'
+
+# Disable a feature
+kubectl patch feature <feature-name> --type='json' -p='[{"op": "replace", "path": "/spec/value", "value": false}]'
+```
+
+<Warning>
+Non-dynamic features require a Rancher restart for changes to take effect.
+</Warning>
+
+## Available Features
+
+### Core Features
+
+#### Multi-Cluster Management (MCM)
+
+```yaml
+name: multi-cluster-management
+default: true
+dynamic: false
+```
+
+Multi-cluster provisioning and management of Kubernetes clusters.
+
+**Source**: pkg/features/feature.go:35
+
+#### MCM Agent
+
+```yaml
+name: multi-cluster-management-agent
+default: false
+dynamic: false
+```
+
+Run downstream controllers for multi-cluster management.
+
+**Source**: pkg/features/feature.go:41
+
+### Fleet & GitOps
+
+#### Fleet
+
+```yaml
+name: fleet
+default: true
+dynamic: false
+```
+
+Install Fleet when starting Rancher. Fleet is Rancher's GitOps solution for Kubernetes.
+
+**Source**: pkg/features/feature.go:47
+
+#### Continuous Delivery
+
+```yaml
+name: continuous-delivery
+default: true
+dynamic: false
+```
+
+Gitops components in Fleet for continuous delivery workflows.
+
+**Source**: pkg/features/feature.go:53
+
+### Authentication
+
+#### Auth
+
+```yaml
+name: auth
+default: true
+dynamic: false
+```
+
+Enable authentication system. Disabling this is not recommended for production.
+
+**Source**: pkg/features/feature.go:59
+
+### Provisioning
+
+#### RKE2
+
+```yaml
+name: rke2
+default: true
+dynamic: false
+```
+
+Enable provisioning of RKE2 clusters.
+
+**Source**: pkg/features/feature.go:71
+
+#### Provisioning V2
+
+```yaml
+name: provisioningv2
+default: true
+dynamic: false
+```
+
+Enable cluster-api based provisioning framework.
+
+**Source**: pkg/features/feature.go:83
+
+#### Provisioning Pre-Bootstrap
+
+```yaml
+name: provisioningprebootstrap
+default: false
+dynamic: false
+```
+
+Support running pre-bootstrap workloads on downstream clusters.
+
+**Source**: pkg/features/feature.go:137
+
+### Security Features
+
+#### Token Hashing
+
+```yaml
+name: token-hashing
+default: false
+dynamic: true
+```
+
+<Warning>
+Once enabled, token hashing cannot be disabled. This feature provides one-way hashing of authentication tokens for enhanced security.
+</Warning>
+
+**Source**: pkg/features/feature.go:89
+
+#### SCIM
+
+```yaml
+name: scim
+default: false
+dynamic: false
+```
+
+Enable SCIM (System for Cross-domain Identity Management) identity provisioning.
+
+**Source**: pkg/features/feature.go:206
+
+### Integration Features
+
+#### Harvester
+
+```yaml
+name: harvester
+default: true
+dynamic: true
+```
+
+Enable Harvester integration with ability to import and manage Harvester clusters.
+
+**Source**: pkg/features/feature.go:95
+
+#### Harvester Baremetal Container Workload
+
+```yaml
+name: harvester-baremetal-container-workload
+default: false
+dynamic: true
+```
+
+<Note>
+This is an experimental feature.
+</Note>
+
+Deploy container workloads to underlying Harvester cluster.
+
+**Source**: pkg/features/feature.go:107
+
+#### Turtles
+
+```yaml
+name: turtles
+default: true
+dynamic: false
+```
+
+Enable Rancher Turtles for managing CAPI (Cluster API) lifecycle.
+
+**Source**: pkg/features/feature.go:179
+
+### UI Features
+
+#### Istio Virtual Service UI
+
+```yaml
+name: istio-virtual-service-ui
+default: true
+dynamic: true
+```
+
+Exposes a UI that enables users to create, read, update, and delete virtual services and destination rules for Istio traffic management.
+
+**Source**: pkg/features/feature.go:29
+
+#### UI Extension
+
+```yaml
+name: uiextension
+default: true
+dynamic: false
+```
+
+Enable UI Extensions when starting Rancher. Allows loading custom UI plugins.
+
+**Source**: pkg/features/feature.go:119
+
+#### UI SQL Cache
+
+```yaml
+name: ui-sql-cache
+default: true
+dynamic: false
+```
+
+Improve performance by enabling SQLite-backed caching. This also enables server-side pagination and other scaling-based performance improvements.
+
+**Source**: pkg/features/feature.go:125
+
+#### RKE1 UI
+
+```yaml
+name: rke1-ui
+default: true
+dynamic: true
+```
+
+Enable RKE1 provisioning in the Rancher UI.
+
+**Source**: pkg/features/feature.go:131
+
+### System Features
+
+#### Managed System Upgrade Controller
+
+```yaml
+name: managed-system-upgrade-controller
+default: true
+dynamic: false
+```
+
+Enable the installation of the system-upgrade-controller app as a managed system chart.
+
+**Source**: pkg/features/feature.go:65
+
+#### Legacy
+
+```yaml
+name: legacy
+default: false
+dynamic: true
+```
+
+Enable legacy features for backward compatibility.
+
+**Source**: pkg/features/feature.go:77
+
+#### Unsupported Storage Drivers
+
+```yaml
+name: unsupported-storage-drivers
+default: false
+dynamic: true
+```
+
+Allows the use of types for storage providers and provisioners that are not enabled by default.
+
+**Source**: pkg/features/feature.go:23
+
+### Cluster Management
+
+#### RKE1 Custom Node Cleanup
+
+```yaml
+name: rke1-custom-node-cleanup
+default: true
+dynamic: true
+```
+
+Enable cleanup of RKE1 custom cluster nodes when they are deleted.
+
+**Source**: pkg/features/feature.go:101
+
+#### Clean Stale Secrets
+
+```yaml
+name: clean-stale-secrets
+default: true
+dynamic: false
+```
+
+Remove unused impersonation secrets from the cattle-impersonation namespace.
+
+**Source**: pkg/features/feature.go:143
+
+#### Cluster Agent Scheduling Customization
+
+```yaml
+name: cluster-agent-scheduling-customization
+default: false
+dynamic: true
+```
+
+Enables the automatic deployment of Pod Disruption Budgets and Priority Classes when deploying the cattle-cluster-agent and fleet agent.
+
+**Note**: Disabling this feature will not impact existing clusters.
+
+**Source**: pkg/features/feature.go:155
+
+#### Cluster Ownership Strategy
+
+```yaml
+name: consistent-hashing-cluster-ownership
+default: false
+dynamic: false
+```
+
+Enable consistent-hashing for cluster-ownership calculation.
+
+**Source**: pkg/features/feature.go:199
+
+### ETCD & Backup
+
+#### Provisioning V2 ETCD Snapshot Back Population
+
+```yaml
+name: v2prov-etcd-snapshot-backpopulate
+default: true
+dynamic: false
+```
+
+Allow Rancher to create ETCD Snapshot CRs for downstream clusters in the local cluster.
+
+**Source**: pkg/features/feature.go:161
+
+#### Provisioning V2 Fleet Workspace Back Population
+
+```yaml
+name: provisioningv2-fleet-workspace-back-population
+default: false
+dynamic: false
+```
+
+<Note>
+This is an experimental feature.
+</Note>
+
+Allow Fleet workspace name to be changed on clusters administrated by provisioning v2.
+
+**Source**: pkg/features/feature.go:113
+
+### Advanced Features
+
+#### Aggregated Role Templates
+
+```yaml
+name: aggregated-roletemplates
+default: false
+dynamic: true
+```
+
+<Note>
+This is an experimental feature.
+</Note>
+
+Make RoleTemplates use aggregation for generated RBAC roles.
+
+**Source**: pkg/features/feature.go:149
+
+#### V3 Public API
+
+```yaml
+name: v3-public
+default: true
+dynamic: false
+```
+
+Enable /v3-public API endpoints.
+
+**Source**: pkg/features/feature.go:192
+
+### Rancher Prime Features
+
+<Note>
+These features are only available in Rancher Prime installations. On community builds, these features are always disabled.
+</Note>
+
+#### OIDC Provider
+
+```yaml
+name: oidc-provider
+default: true (Prime only)
+dynamic: false
+```
+
+Provide an OIDC provider embedded in Rancher. Required to enable SSO in Rancher Prime components.
+
+**Source**: pkg/features/feature.go:167
+
+#### SCC Registration Extension
+
+```yaml
+name: rancher-scc-registration-extension
+default: true (Prime only)
+dynamic: false
+```
+
+Enable Rancher's SCC registration extension to register the system(s) for customer support.
+
+**Source**: pkg/features/feature.go:173
+
+#### Cluster Autoscaling
+
+```yaml
+name: cluster-autoscaling
+default: true (Prime only)
+dynamic: false
+```
+
+Enable Rancher cluster-autoscaler support.
+
+**Source**: pkg/features/feature.go:185
+
+## Feature Flag Behavior
+
+### Dynamic vs Non-Dynamic
+
+- **Dynamic Features**: Can be toggled at runtime without restarting Rancher
+- **Non-Dynamic Features**: Require a Rancher restart for changes to take effect
+
+When you modify a non-dynamic feature, Rancher will indicate that a restart is required.
+
+### Locked Features
+
+Some features can be locked on installation, meaning they cannot be modified after Rancher is installed. A new Rancher instance is required to change these values.
+
+### Prime Features
+
+Prime features are only available in Rancher Prime builds. On non-Prime installations:
+- The feature flag exists but `Enabled()` always returns `false`
+- Setting the value has no effect
+- The feature cannot be enabled
+
+**Check if running Prime**:
+```bash
+echo $RANCHER_VERSION_TYPE
+# Output: "prime" if running Prime
+```
+
+## Listing Enabled Features
+
+To see which features are currently enabled:
+
+```bash
+# List all features
+kubectl get features
+
+# Get detailed info on a specific feature
+kubectl get feature <feature-name> -o yaml
+```
+
+The feature CRD contains:
+- `spec.value`: User-set value (can be `null`)
+- `status.default`: Default value for the feature
+- `status.dynamic`: Whether the feature is dynamic
+- `status.lockedValue`: Locked value (if locked on install)
+- `status.description`: Feature description
+- `status.prime`: Whether the feature is Prime-only
+
+## Best Practices
+
+1. **Test Before Production**
+   - Test feature flag changes in a non-production environment first
+   - Pay attention to dynamic vs non-dynamic flags to plan maintenance windows
+
+2. **Document Changes**
+   - Keep track of which features you've enabled/disabled
+   - Document the reasons for non-default configurations
+
+3. **Monitor After Changes**
+   - Watch Rancher logs after enabling/disabling features
+   - Verify that the feature behaves as expected
+
+4. **Experimental Features**
+   - Use experimental features (marked with `[Experimental]`) with caution
+   - Don't enable experimental features in production without thorough testing
+
+5. **Token Hashing**
+   - Plan carefully before enabling token-hashing as it cannot be reversed
+   - Ensure all downstream clusters can support hashed tokens
+
+## Troubleshooting
+
+### Feature Not Taking Effect
+
+1. Check if the feature is dynamic:
+   ```bash
+   kubectl get feature <feature-name> -o jsonpath='{.status.dynamic}'
+   ```
+
+2. If non-dynamic, restart Rancher:
+   ```bash
+   kubectl rollout restart deployment/rancher -n cattle-system
+   ```
+
+3. Verify the feature value:
+   ```bash
+   kubectl get feature <feature-name> -o yaml
+   ```
+
+### Prime Feature Not Available
+
+Check if you're running Rancher Prime:
+```bash
+kubectl get deployment rancher -n cattle-system -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="RANCHER_VERSION_TYPE")].value}'
+```
+
+## Next Steps
+
+- [Server Configuration](/configuration/server-configuration) - Configure Rancher server options
+- [Audit Logging](/configuration/audit-logging) - Enable audit logging
+- [API Documentation](/api/overview) - Learn about Rancher APIs

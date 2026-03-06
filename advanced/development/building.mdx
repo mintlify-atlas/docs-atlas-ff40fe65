@@ -1,0 +1,535 @@
+---
+title: Building Rancher
+description: Build Rancher from source, including development workflow, requirements, and testing
+---
+
+# Building Rancher from Source
+
+This guide covers building Rancher from source code, including development setup, build configuration, and testing procedures.
+
+## Prerequisites
+
+### Required Tools
+
+- **Go 1.22+**: [Installation guide](https://go.dev/doc/install)
+- **Docker**: For building container images
+- **Docker Buildx**: For cross-platform builds
+- **kubectl**: Kubernetes CLI tool
+- **Helm 3**: For deploying Rancher
+- **Make**: Build automation
+- **Git**: Version control
+
+### Optional Tools
+
+- **k3d**: For local Kubernetes clusters ([Installation](https://k3d.io/))
+- **Dapper**: Build environment tool
+
+## Build Configuration
+
+### Build Variables File
+
+**Location**: `build.yaml`
+
+All build variables are defined in a single source of truth:
+
+```yaml
+# Example build.yaml structure
+webhookVersion: 2.0.6+up0.3.6-rc1
+fleetVersion: 0.9.0
+systemAgentVersion: 0.3.15-rc.3
+```
+
+**Source**: `docs/build.md`
+
+This file contains:
+- Component versions
+- Dependency versions
+- Build-time constants
+- Environment variable defaults
+
+### Updating Build Variables
+
+1. **Edit build.yaml**:
+   ```bash
+   vi build.yaml
+   ```
+
+2. **Regenerate Go constants**:
+   ```bash
+   go generate
+   ```
+
+3. **Rebuild**:
+   ```bash
+   make build
+   ```
+
+### Adding New Build Variables
+
+1. **Add to build.yaml**:
+   ```yaml
+   myNewVersion: 1.2.3
+   ```
+
+2. **Update export-config script**:
+   ```bash
+   # In scripts/export-config
+   export CATTLE_MY_NEW_VERSION=$(grep -m1 'myNewVersion' < "$file" | cut -d ' ' -f2)
+   ```
+
+3. **Run go generate**:
+   ```bash
+   go generate
+   ```
+
+4. **Use in code**:
+   ```go
+   import "github.com/rancher/rancher/pkg/buildconfig"
+   
+   version := buildconfig.MyNewVersion
+   ```
+
+**Common files that reference build variables**:
+- `scripts/build-server`
+- `scripts/build-agent`
+- `package/Dockerfile`
+- `package/Dockerfile.agent`
+- `pkg/settings/setting.go`
+
+## Building Rancher
+
+### Quick Build (Local Development)
+
+Generate a local container image for testing:
+
+```bash
+# Build for current architecture
+REPO="localhost:5000/rancher" TAG="dev" make quick
+```
+
+**Cross-platform build**:
+```bash
+# Build for specific architecture
+REPO="localhost:5000/rancher" \
+  TAG="dev" \
+  ARCH="amd64" \
+  make quick
+```
+
+**Supported architectures**: `amd64`, `arm64`
+
+**Source**: `docs/development.md`
+
+### Full Build
+
+Build all components:
+
+```bash
+make build
+```
+
+This will:
+- Generate code from build.yaml
+- Build server binary
+- Build agent binary
+- Run code generators
+- Compile assets
+
+### Package for Distribution
+
+Create distributable packages:
+
+```bash
+make package
+```
+
+This creates:
+- Docker images
+- Helm charts
+- Release artifacts
+
+### Build Targets
+
+**Available targets** (from `Makefile`):
+
+```bash
+# CI build (full)
+make ci
+
+# Quick server image
+make quick-server
+
+# Quick agent image  
+make quick-agent
+
+# Binary only (no container)
+make quick-binary-server
+
+# K3s images
+make quick-k3s-images
+```
+
+## Development Workflow
+
+### Local Development Setup
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/rancher/rancher.git
+   cd rancher
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   go mod download
+   ```
+
+3. **Set up local Kubernetes cluster** (k3d):
+   ```bash
+   k3d cluster create rancher-dev \
+     --api-port 6550 \
+     --port '80:80@loadbalancer' \
+     --port '443:443@loadbalancer'
+   ```
+
+4. **Build and deploy**:
+   ```bash
+   # Build local image
+   REPO="localhost:5000/rancher" TAG="dev" make quick
+   
+   # Push to local registry
+   docker push localhost:5000/rancher:dev
+   
+   # Deploy via Helm (see below)
+   ```
+
+### Iterative Development
+
+1. **Make code changes**
+
+2. **Build incremental image**:
+   ```bash
+   REPO="localhost:5000/rancher" TAG="dev-$(date +%s)" make quick
+   ```
+
+3. **Update deployment**:
+   ```bash
+   helm upgrade rancher rancher-latest/rancher \
+     --namespace cattle-system \
+     --reuse-values \
+     --set rancherImage="localhost:5000/rancher" \
+     --set rancherImageTag="dev-1234567890"
+   ```
+
+### Hot Reload (Server Development)
+
+For faster iteration during server development:
+
+1. **Build binary**:
+   ```bash
+   make quick-binary-server
+   ```
+
+2. **Run locally** (against remote cluster):
+   ```bash
+   export KUBECONFIG=~/.kube/config
+   ./bin/rancher --add-local=false
+   ```
+
+## Deploying Custom Images
+
+### Using Helm
+
+**Deploy custom Rancher image**:
+
+```bash
+helm upgrade --install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --create-namespace \
+  --set hostname=rancher.local \
+  --set rancherImage="localhost:5000/rancher" \
+  --set rancherImageTag="dev"
+```
+
+**Additional useful flags**:
+```bash
+--set bootstrapPassword="admin" \
+--set replicas=1 \
+--set debug=true \
+--set extraEnv[0].name="CATTLE_DEV_MODE" \
+--set extraEnv[0].value="true"
+```
+
+### Using kubectl
+
+**Patch existing deployment**:
+
+```bash
+kubectl set image deployment/rancher \
+  rancher=localhost:5000/rancher:dev \
+  -n cattle-system
+```
+
+## Testing
+
+### Unit Tests
+
+Run unit tests:
+
+```bash
+# All tests
+go test ./...
+
+# Specific package
+go test ./pkg/catalogv2/...
+
+# With coverage
+go test -cover ./...
+
+# Verbose output
+go test -v ./pkg/...
+```
+
+### Integration Tests
+
+**Location**: `tests/v2/integration/`
+
+**Requirements** (from `tests/README.md`):
+- Running Rancher instance
+- Admin access token
+- Go 1.22+
+- k3d for local clusters
+
+**Run integration tests**:
+
+```bash
+cd tests/v2/integration
+go test -v ./...
+```
+
+**Configuration**:
+Create `cattle-config.yaml`:
+
+```yaml
+rancherConfig:
+  host: https://rancher.local
+  adminToken: token-xxxxx:xxxxxxxxxxxxxxxx
+  insecure: true
+  cleanup: true
+```
+
+### Validation Tests
+
+**Location**: `tests/v2/validation/`
+
+Validation tests may require:
+- Cloud provider credentials
+- External service access
+- Specific configuration files
+
+**Check test suite README** for specific requirements.
+
+### Controller Tests
+
+**Location**: `tests/controllers/`
+
+```bash
+cd tests/controllers
+make test
+```
+
+### End-to-End Tests
+
+**Location**: `pkg/controllers/management/test/e2e/`
+
+```bash
+cd pkg/controllers/management/test/e2e
+go test -v ./...
+```
+
+## Code Generation
+
+### Generate All
+
+Regenerate all generated code:
+
+```bash
+go generate ./...
+```
+
+This generates:
+- Build config constants
+- Kubernetes client code
+- Deep copy methods
+- API schemas
+
+### Specific Generators
+
+**Build config**:
+```bash
+go generate ./pkg/buildconfig
+```
+
+**Kubernetes types**:
+```bash
+# Requires code-generator tools
+./scripts/generate-kubernetes-code
+```
+
+## Using Dapper
+
+Dapper provides a consistent build environment:
+
+### Install Dapper
+
+```bash
+make .dapper
+```
+
+Or manually:
+```bash
+curl -sL https://releases.rancher.com/dapper/latest/dapper-$(uname -s)-$(uname -m) > /usr/local/bin/dapper
+chmod +x /usr/local/bin/dapper
+```
+
+### Build with Dapper
+
+```bash
+# Use dapper for builds
+dapper ci
+
+# Specific target
+dapper build
+```
+
+## Build Optimization
+
+### Parallel Builds
+
+Speed up Go builds:
+
+```bash
+export GOMAXPROCS=$(nproc)
+go build -p $(nproc) ./...
+```
+
+### Build Cache
+
+Leverage Go build cache:
+
+```bash
+# Check cache location
+go env GOCACHE
+
+# Clear cache if needed
+go clean -cache
+```
+
+### Docker BuildKit
+
+Enable BuildKit for faster Docker builds:
+
+```bash
+export DOCKER_BUILDKIT=1
+make quick
+```
+
+## Troubleshooting
+
+### Build Failures
+
+**Dependency issues**:
+```bash
+# Update dependencies
+go mod tidy
+go mod download
+
+# Verify go.mod and go.sum
+go mod verify
+```
+
+**Code generation issues**:
+```bash
+# Regenerate all
+go generate ./...
+
+# Clean and rebuild
+make clean
+make build
+```
+
+**Docker build failures**:
+```bash
+# Clear build cache
+docker builder prune -f
+
+# Check disk space
+df -h
+
+# Clean up docker
+docker system prune -a
+```
+
+### Runtime Issues
+
+**Check logs**:
+```bash
+kubectl logs -n cattle-system deployment/rancher -f
+```
+
+**Debug mode**:
+```bash
+# Enable debug logging
+kubectl set env deployment/rancher \
+  CATTLE_DEBUG=true \
+  -n cattle-system
+```
+
+### Performance Issues
+
+**Profile CPU**:
+```bash
+go test -cpuprofile cpu.prof -bench .
+go tool pprof cpu.prof
+```
+
+**Profile Memory**:
+```bash
+go test -memprofile mem.prof -bench .
+go tool pprof mem.prof
+```
+
+## Continuous Integration
+
+Rancher uses GitHub Actions for CI:
+
+**Workflows location**: `.github/workflows/`
+
+**Local CI testing**:
+```bash
+# Run full CI build
+make ci
+```
+
+## Best Practices
+
+1. **Always run `go generate`** after changing build.yaml
+2. **Use Dapper** for consistent builds across environments
+3. **Test locally** before pushing
+4. **Keep dependencies updated**: `go get -u ./...`
+5. **Run tests** before committing: `go test ./...`
+6. **Follow Go conventions**: Run `gofmt` and `golint`
+7. **Use feature branches** for development
+8. **Clean up Docker images** regularly
+9. **Document new build variables** in comments
+10. **Tag dev images** with timestamps for traceability
+
+## Related Resources
+
+- **Build Configuration**: `docs/build.md`
+- **Development Guide**: `docs/development.md`
+- **Makefile**: `Makefile`
+- **Build Variables**: `build.yaml`
+- **Build Config Package**: `pkg/buildconfig/`
+- **Test Framework**: `tests/README.md`
+- **Contributing**: See [Contributing Guide](./contributing)

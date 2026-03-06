@@ -1,0 +1,159 @@
+---
+title: Introduction to Rancher
+description: Learn about Rancher, the open source container management platform for running Kubernetes everywhere
+---
+
+## What is Rancher?
+
+Rancher is an open source container management platform built for organizations that deploy containers in production. Rancher makes it easy to run Kubernetes everywhere, meet IT requirements, and empower DevOps teams.
+
+<Info>
+Rancher is built on Kubernetes and combines everything an organization needs to adopt and run containers in production. It provides a complete platform for testing, deploying, and managing applications at scale.
+</Info>
+
+## Key Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Multi-Cluster Management" icon="layer-group">
+    Manage multiple Kubernetes clusters from a single control plane, whether on-premises, in the cloud, or at the edge.
+  </Card>
+  
+  <Card title="Simplified Operations" icon="sliders">
+    Deploy and manage Kubernetes clusters with an intuitive UI and powerful CLI tools for DevOps workflows.
+  </Card>
+  
+  <Card title="Enterprise Security" icon="shield-halved">
+    Built-in authentication, authorization, and audit logging to meet enterprise IT requirements.
+  </Card>
+  
+  <Card title="Application Catalog" icon="book">
+    Deploy applications using Helm charts and leverage GitOps with Fleet for continuous delivery.
+  </Card>
+</CardGroup>
+
+## Why Choose Rancher?
+
+### Run Kubernetes Everywhere
+
+Rancher supports multiple Kubernetes distributions and cloud providers:
+
+- **RKE2** and **K3s** - Rancher's lightweight Kubernetes distributions
+- **Hosted Kubernetes** - AKS, EKS, GKE
+- **Import Existing Clusters** - Bring your own Kubernetes clusters
+
+### Unified Management Experience
+
+Manage all your Kubernetes clusters from a single interface:
+
+- Centralized authentication and RBAC
+- Consistent deployment workflows
+- Cross-cluster monitoring and logging
+- Simplified backup and disaster recovery
+
+### DevOps-Ready Platform
+
+Rancher includes everything DevOps teams need:
+
+- **GitOps Integration** - Fleet for continuous delivery
+- **Monitoring Stack** - Prometheus and Grafana integration
+- **Service Mesh** - Istio support
+- **CI/CD Pipelines** - Native pipeline engine
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Multi-Cloud Kubernetes">
+    Deploy and manage Kubernetes clusters across AWS, Azure, GCP, and on-premises infrastructure from a single control plane.
+  </Accordion>
+  
+  <Accordion title="Edge Computing">
+    Run lightweight K3s clusters at the edge with centralized management and GitOps-based deployments.
+  </Accordion>
+  
+  <Accordion title="Enterprise Container Platform">
+    Provide development teams with self-service Kubernetes clusters while maintaining centralized governance and security.
+  </Accordion>
+  
+  <Accordion title="Kubernetes Migration">
+    Simplify migration to Kubernetes by importing existing clusters and standardizing management across your infrastructure.
+  </Accordion>
+</AccordionGroup>
+
+## Architecture Overview
+
+Rancher consists of two main components:
+
+1. **Rancher Server** - The management control plane that provides:
+   - Web UI and API server
+   - Authentication and authorization
+   - Cluster provisioning and lifecycle management
+   - Monitoring and logging aggregation
+
+2. **Managed Clusters** - Kubernetes clusters managed by Rancher:
+   - Cluster agents for communication with Rancher Server
+   - Workload deployments and applications
+   - Monitoring and logging agents
+
+<Note>
+For detailed architecture information, see the [Architecture Overview](/architecture/overview) section.
+</Note>
+
+## Stable Release
+
+<Info>
+**Current Stable Version**: v2.13.3
+
+Docker Image: `rancher/rancher:v2.13.3` or `rancher/rancher:stable`
+
+View the full [release notes](https://github.com/rancher/rancher/releases/tag/v2.13.3) on GitHub.
+</Info>
+
+To get automated notifications of the latest releases:
+- Watch the [announcements category](http://forums.rancher.com/c/announcements) in the Rancher forums
+- Subscribe to the RSS feed: `https://forums.rancher.com/c/announcements.rss`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Rancher running in minutes with a single Docker command
+  </Card>
+  
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Learn about production installation options and requirements
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Understand how Rancher components work together
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the Rancher API for automation and integration
+  </Card>
+</CardGroup>
+
+## Community and Support
+
+<CardGroup cols={3}>
+  <Card title="Forums" icon="comments" href="http://forums.rancher.com/">
+    Join the community discussion
+  </Card>
+  
+  <Card title="Slack" icon="slack" href="https://slack.rancher.io/">
+    Chat with the team and community
+  </Card>
+  
+  <Card title="GitHub" icon="github" href="https://github.com/rancher/rancher/issues">
+    Report bugs and request features
+  </Card>
+</CardGroup>
+
+<Warning>
+For security issues, please review the [security policy](https://github.com/rancher/rancher/security) and email security-rancher@suse.com instead of posting a public issue in GitHub.
+</Warning>
+
+## License
+
+Rancher is licensed under the Apache License, Version 2.0. See the full [LICENSE](http://www.apache.org/licenses/LICENSE-2.0) for details.
+
+Copyright (c) 2014-2025 [SUSE](http://rancher.com)

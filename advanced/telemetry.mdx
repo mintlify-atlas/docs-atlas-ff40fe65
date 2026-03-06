@@ -1,0 +1,547 @@
+---
+title: Telemetry and Analytics
+description: Understand Rancher's telemetry system for collecting usage data and cluster statistics
+---
+
+## Overview
+
+Rancher includes a telemetry system that collects anonymized usage data and cluster statistics. This data helps improve Rancher by providing insights into how it's used, cluster sizes, and common configurations. The telemetry system is designed with privacy in mind and does not collect sensitive information.
+
+## Telemetry Architecture
+
+### Components
+
+The telemetry system consists of several key components:
+
+#### TelemetryGatherer
+
+Collects telemetry data from Rancher and managed clusters:
+
+- Aggregates cluster information
+- Collects node statistics
+- Gathers feature flag usage
+- Tracks Rancher version information
+
+Source: pkg/telemetry/telemetry.go:252-271
+
+#### TelemetryExporterManager
+
+Manages telemetry exporters and collection intervals:
+
+- Registers telemetry exporters
+- Schedules periodic data collection
+- Manages exporter lifecycle (start/stop)
+- Handles multiple exporters simultaneously
+
+Source: pkg/telemetry/exporter.go:27-38
+
+#### TelemetryExporter
+
+Exports collected telemetry data to destinations:
+
+- Collects data using TelemetryGatherer
+- Formats data for export
+- Stores or transmits telemetry data
+- Handles errors and retries
+
+Source: pkg/telemetry/exporter.go:203-206
+
+### Telemetry Namespace
+
+Telemetry components run in a dedicated namespace:
+
+- **Namespace**: cattle-telemetry-system (source:pkg/telemetry/consts/consts.go:4)
+- Isolated from application workloads
+- Contains telemetry secrets and configuration
+
+## Data Collection
+
+### What Data is Collected
+
+The telemetry system collects the following types of information:
+
+#### Rancher Version Information
+
+```go
+type RancherVersionTelemetry interface {
+    InstallUUID() string        // Unique installation identifier
+    ClusterUUID() string        // Cluster unique identifier
+    ServerURL() string          // Rancher server URL (anonymized)
+    RancherVersion() string     // Rancher version number
+    RancherGitHash() string     // Git commit hash
+    FeatureFlags() []string     // Enabled feature flags
+}
+```
+
+Source: pkg/telemetry/telemetry.go:39-46
+
+#### Cluster Management Data
+
+```go
+type RancherManagerTelemetry interface {
+    ManagedClusterCount() int                              // Total clusters
+    PerManagedClusterTelemetry() iter.Seq2[ClusterID, ClusterTelemetry]
+    LocalNodeCount() int                                   // Nodes in local cluster
+    LocalClusterTelemetry() ClusterTelemetry              // Local cluster stats
+    RancherVersionTelemetry                               // Version info
+}
+```
+
+Source: pkg/telemetry/telemetry.go:48-61
+
+#### Cluster Statistics
+
+```go
+type ClusterTelemetry interface {
+    ComputeTelmetry                                        // CPU and memory
+    PerNodeTelemetry() iter.Seq2[NodeID, NodeTelemetry]  // Per-node stats
+}
+```
+
+Source: pkg/telemetry/telemetry.go:63-66
+
+#### Node Information
+
+```go
+type NodeTelemetry interface {
+    Role() NodeRole              // Node role (etcd, control-plane, worker)
+    ComputeTelmetry             // CPU and memory capacity
+    SystemTelemetry             // OS and runtime info
+}
+```
+
+Source: pkg/telemetry/telemetry.go:68-72
+
+#### System Information
+
+```go
+type SystemTelemetry interface {
+    OS() string                 // Operating system
+    ContainerRuntime() string   // Container runtime version
+    KernelVersion() string      // Kernel version
+    CpuArchitecture() string    // CPU architecture (amd64, arm64)
+}
+```
+
+Source: pkg/telemetry/telemetry.go:74-79
+
+#### Compute Resources
+
+```go
+type ComputeTelmetry interface {
+    CpuCores() (int, error)             // Total CPU cores
+    MemoryCapacityBytes() (int, error)  // Total memory in bytes
+}
+```
+
+Source: pkg/telemetry/telemetry.go:81-84
+
+### Node Roles
+
+Nodes are categorized by role:
+
+```go
+const (
+    NodeRoleEtcd    NodeRole = "etcd"
+    NodeRoleWorker  NodeRole = "worker"
+    NodeRoleControl NodeRole = "control-plane"
+    NodeRoleUnknown NodeRole = "unknown"
+)
+```
+
+Source: pkg/telemetry/telemetry.go:22-26
+
+### Data Collection Implementation
+
+The telemetry gatherer collects data from:
+
+1. **Cluster Cache**: Retrieves cluster information (source:pkg/telemetry/telemetry.go:282-283)
+2. **Node Cache**: Collects node statistics (source:pkg/telemetry/telemetry.go:296-298)
+3. **Local Cluster**: Identifies and processes local cluster separately (source:pkg/telemetry/telemetry.go:299-302)
+4. **Managed Clusters**: Aggregates data from downstream clusters (source:pkg/telemetry/telemetry.go:304-312)
+
+## Telemetry Export
+
+### Export Manager
+
+The telemetry export manager handles periodic data collection:
+
+```go
+func NewTelemetryExporterManager(
+    telG TelemetryGatherer, 
+    pollInterval time.Duration
+) TelemetryExporterManager
+```
+
+Source: pkg/telemetry/exporter.go:40-56
+
+### Exporter Registration
+
+Register exporters with retry intervals:
+
+```go
+Register(exporterId string, exp TelemetryExporter, retry time.Duration)
+```
+
+Features:
+- Unique exporter IDs
+- Configurable retry intervals
+- Duplicate registration prevention
+
+Source: pkg/telemetry/exporter.go:77-91
+
+### Exporter Lifecycle
+
+#### Starting Exporters
+
+```go
+Start(ctx context.Context, info initcond.InitInfo) error
+```
+
+Initializes telemetry collection:
+- Sets initialization information (UUIDs, versions)
+- Starts background collection tasks
+- Schedules periodic exports
+
+Source: pkg/telemetry/exporter.go:184-196
+
+#### Stopping Exporters
+
+```go
+Stop() error
+```
+
+Gracefully stops telemetry collection (source:pkg/telemetry/exporter.go:198-201)
+
+### Exporter Status
+
+Check exporter status:
+
+```go
+type ExporterStatus string
+
+const (
+    ExporterStatusRunning    ExporterStatus = "Running"
+    ExporterStatusNotRunning ExporterStatus = "NotRunning"
+)
+```
+
+Source: pkg/telemetry/exporter.go:20-25
+
+Query status:
+```go
+Status(exporterId string) ExporterStatus
+Has(exporterId string) bool
+```
+
+Source: pkg/telemetry/exporter.go:100-113
+
+## Secret-Based Export
+
+### Secret Exporter
+
+The secret exporter stores telemetry data in Kubernetes secrets:
+
+```go
+type secretTelemetryExporter struct {
+    telG      TelemetryGatherer
+    secretRef *corev1.SecretReference
+    ctrl      wcorev1.SecretController
+}
+```
+
+Source: pkg/telemetry/exporter.go:215-219
+
+### Secret Structure
+
+Telemetry data is stored in a secret:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: telemetry-data
+  namespace: cattle-telemetry-system
+  annotations:
+    scc.cattle.io/part-of: telemetry
+    scc.cattle.io/last-changed: "2026-03-06T12:00:00Z"
+data:
+  payload: <base64-encoded-json>
+```
+
+Source: pkg/telemetry/exporter.go:247-260
+
+### Secret Updates
+
+The exporter creates or updates the secret:
+
+1. Collects telemetry data
+2. Generates payload (JSON format)
+3. Encodes as base64
+4. Creates secret if it doesn't exist
+5. Updates existing secret with new data
+6. Handles conflicts with retry logic
+
+Source: pkg/telemetry/exporter.go:246-280
+
+## Telemetry API
+
+### Gathering Telemetry
+
+Collect telemetry data programmatically:
+
+```go
+func (t *TelemetryGatherer) GetClusterTelemetry() (RancherManagerTelemetry, error)
+```
+
+Returns:
+- Rancher version information
+- Cluster counts and statistics
+- Node information per cluster
+- Compute resource totals
+
+Source: pkg/telemetry/telemetry.go:281-325
+
+### Initialization
+
+Initialize telemetry gatherer:
+
+```go
+func NewTelemetryGatherer(
+    clusterCache v3ctrl.ClusterCache,
+    nodeCache v3ctrl.NodeCache,
+) TelemetryGatherer
+```
+
+Requires:
+- Cluster cache for cluster information
+- Node cache for node statistics
+
+Source: pkg/telemetry/telemetry.go:263-271
+
+### Setting Initialization Info
+
+Provide Rancher instance information:
+
+```go
+func (t *TelemetryGatherer) visitWithInitInfo(info initcond.InitInfo)
+```
+
+Sets:
+- Cluster UUID
+- Server URL
+- Installation UUID
+- Rancher version
+- Git hash
+
+Source: pkg/telemetry/telemetry.go:273-279
+
+## Resource Computation
+
+### CPU Cores Calculation
+
+```go
+func handleCpuCores(cpuQ resource.Quantity) (int, error)
+```
+
+Converts Kubernetes CPU quantities to core counts:
+- Handles fractional CPUs (e.g., 500m = 0.5 cores)
+- Returns integer core count
+- Reports errors for invalid formats
+
+Source: pkg/telemetry/telemetry.go:351-357
+
+Errors:
+- ErrNoCPUReported: No CPU information available (source:pkg/telemetry/telemetry.go:33)
+- ErrCpuCoresFormat: Invalid CPU format (source:pkg/telemetry/telemetry.go:34)
+
+### Memory Calculation
+
+```go
+func handleMemBytes(memQ resource.Quantity) (int, error)
+```
+
+Converts Kubernetes memory quantities to bytes:
+- Handles various units (Ki, Mi, Gi, etc.)
+- Returns total bytes
+- Reports errors for invalid formats
+
+Source: pkg/telemetry/telemetry.go:359-369
+
+Errors:
+- ErrNoMemReported: No memory information available (source:pkg/telemetry/telemetry.go:35)
+- ErrMemBytesFormat: Invalid memory format (source:pkg/telemetry/telemetry.go:36)
+
+## Privacy Considerations
+
+### Data Anonymization
+
+The telemetry system is designed to protect privacy:
+
+1. **No Personal Information**: Does not collect user names, passwords, or personal data
+2. **Anonymized IDs**: Uses UUIDs instead of identifiable information
+3. **Aggregate Statistics**: Collects counts and totals, not individual resources
+4. **No Application Data**: Does not collect workload configurations or application secrets
+5. **Optional Collection**: Telemetry can be disabled if needed
+
+### What is NOT Collected
+
+- User credentials or tokens
+- Application configurations
+- Kubernetes secrets or ConfigMaps
+- API payloads or request data
+- Log contents
+- Workload names or labels
+- Custom resource definitions
+- Network configurations
+
+### Data Usage
+
+Collected telemetry data is used for:
+
+- Understanding feature adoption
+- Identifying common cluster configurations
+- Prioritizing bug fixes and improvements
+- Planning capacity and scaling features
+- Improving documentation and user experience
+
+## Feature Flags and Telemetry
+
+### Feature Flag Collection
+
+Telemetry includes enabled feature flags:
+
+```go
+func (r *rancherTelemetryImpl) FeatureFlags() []string {
+    return features.ListEnabled()
+}
+```
+
+Source: pkg/telemetry/telemetry.go:211-213
+
+This helps understand:
+- Which features are commonly enabled
+- Feature adoption rates
+- Compatibility requirements
+- Feature flag effectiveness
+
+## SCC Registration
+
+Rancher includes Support Customer Center (SCC) integration:
+
+### SCC Payload Generation
+
+```go
+func GenerateSCCPayload(telG RancherManagerTelemetry) (interface{}, error)
+```
+
+Creates payloads for SCC registration containing:
+- Cluster information
+- Node statistics
+- Version information
+- Usage metrics
+
+Source: pkg/telemetry/exporter.go:230-232
+
+### Secret Annotations
+
+SCC-related secrets are annotated:
+
+```yaml
+annotations:
+  scc.cattle.io/part-of: telemetry
+  scc.cattle.io/last-changed: <timestamp>
+```
+
+Source: pkg/telemetry/exporter.go:253-254
+
+## Troubleshooting
+
+### Verifying Telemetry Collection
+
+Check telemetry system status:
+
+```bash
+# Check telemetry namespace
+kubectl get pods -n cattle-telemetry-system
+
+# View telemetry secrets
+kubectl get secrets -n cattle-telemetry-system
+
+# Inspect telemetry data
+kubectl get secret telemetry-data -n cattle-telemetry-system -o yaml
+```
+
+### Common Issues
+
+#### Telemetry Not Collecting
+
+- Verify telemetry components are running
+- Check exporter registration and status
+- Review telemetry manager logs
+- Ensure cluster and node caches are populated
+
+#### Missing Data
+
+- Verify cluster cache contains all clusters
+- Check node cache for node information
+- Ensure initialization info is set
+- Review error logs for collection failures
+
+#### Secret Update Failures
+
+- Check RBAC permissions for secret access
+- Verify namespace exists
+- Review controller logs for errors
+- Check for resource conflicts
+
+### Debug Commands
+
+```bash
+# Check telemetry gatherer status
+kubectl logs -n cattle-system deployment/rancher | grep telemetry
+
+# View cluster cache
+kubectl get clusters.management.cattle.io -A
+
+# Check node information
+kubectl get nodes.management.cattle.io -A
+
+# Inspect telemetry secret
+kubectl describe secret telemetry-data -n cattle-telemetry-system
+```
+
+## Disabling Telemetry
+
+While not explicitly shown in the code analyzed, telemetry can typically be disabled through:
+
+1. Environment variables on Rancher server
+2. Configuration settings in Rancher UI
+3. Helm chart values during installation
+4. Feature flags (if applicable)
+
+Consult Rancher documentation for specific instructions for your version.
+
+## Best Practices
+
+### For Rancher Administrators
+
+- Understand what data is being collected
+- Review privacy policies and compliance requirements
+- Configure telemetry according to organizational policies
+- Monitor telemetry system resource usage
+- Keep telemetry components updated
+
+### For Development and Testing
+
+- Use telemetry data to understand usage patterns
+- Test feature flags with telemetry collection
+- Verify telemetry doesn't impact performance
+- Ensure telemetry works in air-gapped environments (if applicable)
+
+## Next Steps
+
+- Review [Monitoring](./monitoring.mdx) for operational metrics
+- Understand feature flag system in Rancher
+- Configure cluster and node information collection
+- Set up SCC registration for support (Rancher Prime)

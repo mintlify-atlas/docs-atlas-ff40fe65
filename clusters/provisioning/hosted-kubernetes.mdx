@@ -1,0 +1,590 @@
+---
+title: Hosted Kubernetes Provisioning
+description: Provision and manage EKS, GKE, and AKS clusters with Rancher
+---
+
+Rancher can provision and manage hosted Kubernetes clusters from major cloud providers using operator-based cluster drivers. These managed services handle control plane operations while Rancher provides unified management and governance.
+
+## Supported Providers
+
+Rancher integrates with three major cloud providers:
+
+- **Amazon EKS** (Elastic Kubernetes Service)
+- **Google GKE** (Google Kubernetes Engine)
+- **Azure AKS** (Azure Kubernetes Service)
+
+Each provider uses a dedicated operator that communicates with cloud provider APIs to create and manage clusters.
+
+## Architecture Overview
+
+### Operator-Based Provisioning
+
+Hosted Kubernetes provisioning uses cluster operators:
+
+**EKS Operator:**
+- API Group: `eks.cattle.io/v1`
+- Resource: `EKSClusterConfig`
+- Controller: `rancher-eks-operator`
+- AWS SDK Integration: Uses AWS SDK to manage EKS clusters
+
+Reference: `pkg/controllers/management/eks/eks_cluster_handler.go:46-86`
+
+**GKE Operator:**
+- Handles Google Cloud API authentication
+- Manages GKE cluster lifecycle
+- Provisions node pools and networking
+
+Reference: `pkg/api/norman/customization/gke/handler.go:33-49`
+
+**AKS Operator:**
+- Azure SDK integration
+- Supports multiple Azure environments (Public, China, Government)
+- Manages virtual networks and node pools
+
+Reference: `pkg/api/norman/customization/aks/handler.go:43-60`
+
+### Cloud Provider Integration
+
+Hosted Kubernetes integration involves:
+
+1. **Cloud Credentials**: Store provider credentials in Rancher
+2. **Cluster Spec**: Define cluster configuration via operator CRDs
+3. **Operator Reconciliation**: Operator calls cloud provider APIs
+4. **Kubeconfig Import**: Rancher imports cluster kubeconfig
+5. **Agent Deployment**: Rancher agents deployed for management
+
+## Amazon EKS Provisioning
+
+### Prerequisites
+
+**AWS Credentials Required:**
+- Access Key ID
+- Secret Access Key
+- IAM permissions for:
+  - EKS cluster management
+  - EC2 instance operations
+  - VPC and security group management
+  - IAM role creation (optional)
+
+Reference: EKS handler authenticates using AWS credentials at `pkg/controllers/management/eks/eks_cluster_handler.go:14-43`
+
+### EKS Configuration Steps
+
+<Steps>
+  <Step title="Create Cloud Credentials">
+    Store AWS credentials in Rancher:
+
+    Navigate to **Cluster Management** → **Cloud Credentials** → **Create**
+
+    Select **Amazon** and provide:
+    - Access Key
+    - Secret Key
+    - Default Region (optional)
+
+    Credentials are stored in the `cattle-global-data` namespace.
+  </Step>
+
+  <Step title="Configure EKS Cluster">
+    Define cluster specifications:
+
+    **Basic Configuration:**
+    - Kubernetes Version
+    - Region (e.g., us-west-2)
+    - VPC and Subnets
+    - Security Groups
+
+    **Node Groups:**
+    - Instance types (t3.medium, m5.large, etc.)
+    - Desired capacity, min, max nodes
+    - Disk size and type
+    - AMI type (AL2_x86_64, AL2_ARM_64, BOTTLEROCKET)
+
+    **Networking:**
+    - Public/Private API endpoint
+    - Cluster security group
+    - Service IPv4 CIDR
+  </Step>
+
+  <Step title="Deploy Cluster">
+    Rancher creates the EKS cluster via AWS API:
+
+    1. Creates EKS control plane
+    2. Provisions managed node groups
+    3. Configures networking and security
+    4. Retrieves cluster kubeconfig
+    5. Deploys Rancher cluster agent
+
+    Reference: `pkg/controllers/management/eks/eks_cluster_handler.go:88-100`
+  </Step>
+
+  <Step title="Access Cluster">
+    Once active, manage the cluster through:
+
+    - Rancher UI for cluster operations
+    - kubectl with downloaded kubeconfig
+    - AWS Console for cloud-specific features
+
+    The cluster agent enables Rancher management features.
+  </Step>
+</Steps>
+
+### EKS-Specific Features
+
+**IAM Roles for Service Accounts (IRSA):**
+- Associate IAM roles with Kubernetes service accounts
+- Fine-grained permissions for pods
+- No need for node-level IAM permissions
+
+**Managed Node Groups:**
+- AWS-managed node lifecycle
+- Automatic updates and patching
+- Auto Scaling Group integration
+
+**Fargate Support:**
+- Serverless container execution
+- No node management required
+- Pay-per-pod pricing
+
+## Google GKE Provisioning
+
+### Prerequisites
+
+**GCP Credentials Required:**
+- Service Account JSON key
+- Project ID
+- IAM permissions for:
+  - GKE cluster management
+  - Compute Engine operations
+  - VPC network management
+  - Service Account management
+
+Reference: `pkg/api/norman/customization/gke/handler.go:26-32`
+
+### GKE Configuration Steps
+
+<Steps>
+  <Step title="Create Cloud Credentials">
+    Store GCP credentials in Rancher:
+
+    Navigate to **Cluster Management** → **Cloud Credentials** → **Create**
+
+    Select **Google** and provide:
+    - Service Account JSON (base64 encoded)
+    - Project ID
+
+    Reference: `pkg/api/norman/customization/gke/handler.go:188-235`
+  </Step>
+
+  <Step title="Configure GKE Cluster">
+    Define cluster specifications:
+
+    **Cluster Configuration:**
+    - Kubernetes Version
+    - Region or Zone
+    - Network and Subnetwork
+    - Cluster IP range
+
+    **Node Pools:**
+    - Machine type (e2-medium, n1-standard-2, etc.)
+    - Node count (min, max for autoscaling)
+    - Disk size and type
+    - Preemptible nodes (for cost savings)
+
+    **Features:**
+    - GKE Autopilot (fully managed)
+    - Workload Identity
+    - Network Policy
+    - HTTP Load Balancing
+  </Step>
+
+  <Step title="Select Cluster Type">
+    Choose between:
+
+    **Standard Cluster:**
+    - Full control over node configuration
+    - Custom machine types
+    - Manual scaling and upgrades
+
+    **Autopilot Cluster:**
+    - Google-managed nodes
+    - Automatic scaling and upgrades
+    - Pre-configured security
+    - Pay-per-pod pricing
+  </Step>
+
+  <Step title="Deploy and Import">
+    Rancher provisions the GKE cluster:
+
+    1. Creates GKE cluster via Google Cloud API
+    2. Configures node pools
+    3. Retrieves cluster credentials
+    4. Deploys Rancher cluster agent
+  </Step>
+</Steps>
+
+### GKE-Specific Features
+
+**Workload Identity:**
+- Link Kubernetes service accounts to GCP service accounts
+- Fine-grained IAM permissions
+- No need for service account keys in pods
+
+**GKE Autopilot:**
+- Fully managed nodes
+- Automatic security patching
+- Optimized resource allocation
+- SLA-backed availability
+
+**Binary Authorization:**
+- Enforce deployment policies
+- Verify container image signatures
+- Compliance and security controls
+
+Reference: GKE capabilities exposed through `pkg/api/norman/customization/gke/handler.go:82-186`
+
+## Azure AKS Provisioning
+
+### Prerequisites
+
+**Azure Credentials Required:**
+- Subscription ID
+- Tenant ID
+- Client ID (Application ID)
+- Client Secret
+- IAM permissions for:
+  - AKS cluster management
+  - Virtual machine operations
+  - Network interface management
+  - Role assignments
+
+Reference: `pkg/api/norman/customization/aks/handler.go:31-41`
+
+### AKS Configuration Steps
+
+<Steps>
+  <Step title="Create Cloud Credentials">
+    Store Azure credentials in Rancher:
+
+    Navigate to **Cluster Management** → **Cloud Credentials** → **Create**
+
+    Select **Azure** and provide:
+    - Subscription ID
+    - Tenant ID
+    - Client ID
+    - Client Secret
+    - Environment (Public, China, Government)
+
+    Reference: `pkg/api/norman/customization/aks/handler.go:215-280`
+  </Step>
+
+  <Step title="Configure AKS Cluster">
+    Define cluster specifications:
+
+    **Cluster Configuration:**
+    - Kubernetes Version
+    - Location (region)
+    - Resource Group
+    - Virtual Network
+    - DNS Name Prefix
+
+    **Node Pools:**
+    - VM Size (Standard_D2s_v3, etc.)
+    - Node count (min, max for autoscaling)
+    - OS Disk Size
+    - Availability Zones
+    - Node Labels and Taints
+
+    **Networking:**
+    - Network Plugin (kubenet, azure CNI)
+    - Network Policy (calico, azure)
+    - Load Balancer SKU (Basic, Standard)
+    - Outbound Type
+  </Step>
+
+  <Step title="Advanced Configuration">
+    Configure optional features:
+
+    **Identity:**
+    - Managed Identity (System or User-assigned)
+    - Azure AD Integration
+    - RBAC enabled
+
+    **Add-ons:**
+    - Azure Monitor
+    - Azure Policy
+    - HTTP Application Routing
+    - Virtual Node (ACI integration)
+
+    **Security:**
+    - Azure Key Vault integration
+    - Disk encryption
+    - Private cluster (private API endpoint)
+  </Step>
+
+  <Step title="Provision Cluster">
+    Rancher creates the AKS cluster:
+
+    1. Calls Azure Resource Manager API
+    2. Creates AKS resource
+    3. Provisions agent pools
+    4. Configures networking
+    5. Retrieves admin credentials
+    6. Deploys Rancher agent
+
+    Reference: `pkg/api/norman/customization/aks/handler.go:62-160`
+  </Step>
+</Steps>
+
+### AKS-Specific Features
+
+**Azure AD Integration:**
+- Kubernetes RBAC with Azure AD
+- Centralized user management
+- Conditional access policies
+
+**Virtual Nodes:**
+- Serverless container execution with ACI
+- Burst scaling for spiky workloads
+- No node provisioning delays
+
+**Azure Policy:**
+- Enforce organizational standards
+- Compliance reporting
+- Built-in policy definitions
+
+**Multiple Node Pools:**
+- Different VM sizes per pool
+- Windows and Linux nodes
+- Spot instance pools for cost savings
+
+## Cloud Provider Comparison
+
+| Feature | EKS | GKE | AKS |
+|---------|-----|-----|-----|
+| **Kubernetes Version Support** | Latest - 3 | Latest - 2 | Latest - 2 |
+| **Node OS Options** | Amazon Linux 2, Bottlerocket | Container-Optimized OS, Ubuntu | Ubuntu, Windows Server |
+| **Serverless Compute** | Fargate | Autopilot, Cloud Run | Virtual Nodes (ACI) |
+| **Network Policy** | Calico, AWS VPC CNI | GKE Network Policy | Calico, Azure CNI |
+| **Managed Control Plane** | Yes | Yes | Yes |
+| **Control Plane Cost** | $0.10/hour | Free | Free |
+| **Node Autoscaling** | Cluster Autoscaler | Node Auto-provisioning | Cluster Autoscaler |
+| **Pod Autoscaling** | HPA, VPA, KEDA | HPA, VPA | HPA, VPA, KEDA |
+
+## Common Configuration Patterns
+
+### Production Cluster
+
+Highly available configuration:
+
+**EKS Example:**
+- Multi-AZ deployment (3 availability zones)
+- 3+ nodes per node group for HA
+- Private API endpoint
+- Managed node groups with auto-scaling
+- IRSA for pod-level permissions
+
+**GKE Example:**
+- Regional cluster (multi-zone)
+- 3+ nodes with node auto-provisioning
+- Workload Identity enabled
+- Network Policy enabled
+- Binary Authorization for security
+
+**AKS Example:**
+- Availability Zones enabled
+- System and User node pools separated
+- Azure CNI networking
+- Azure AD integration
+- Azure Policy enabled
+
+### Development Cluster
+
+Cost-optimized configuration:
+
+- Single availability zone
+- Smaller instance types
+- Fewer nodes (1-2 minimum)
+- Spot/Preemptible instances
+- Disabled monitoring add-ons
+
+### Edge/Regional Cluster
+
+Location-specific deployment:
+
+- Specific region selection for latency
+- Local storage optimized instances
+- Reduced control plane regions
+- Cost-optimized node types
+
+## Credential Management
+
+### Credential Storage
+
+Cloud credentials are stored securely:
+
+- **Namespace**: `cattle-global-data`
+- **Format**: `namespace:secret-name`
+- **Encryption**: At rest in etcd
+- **Access Control**: RBAC-protected
+
+### Credential Rotation
+
+To rotate cloud credentials:
+
+1. Create new credentials in cloud provider console
+2. Update cloud credential in Rancher
+3. Rancher re-authenticates with new credentials
+4. Revoke old credentials in cloud provider
+
+<Warning>
+Ensure new credentials have required permissions before revoking old ones.
+</Warning>
+
+Reference: Credential handling at `pkg/controllers/capr/machineprovision/args.go:223-257`
+
+## Cluster Import vs Provisioning
+
+**Provisioning** (via operators):
+- Rancher creates the cluster
+- Full lifecycle management
+- Configuration stored in Rancher
+- Cloud credentials required
+
+**Import** (existing clusters):
+- Cluster already exists
+- Limited lifecycle operations
+- Management through Rancher agent
+- No cloud credentials required
+
+References: 
+- EKS import annotation: `pkg/controllers/management/eks/eks_cluster_handler.go:53`
+
+## Monitoring and Logging
+
+### Enable Cloud Provider Monitoring
+
+**EKS - CloudWatch:**
+- Control plane logs
+- API server audit logs
+- Controller manager logs
+- Scheduler logs
+
+**GKE - Cloud Monitoring:**
+- System metrics
+- Workload metrics
+- Control plane metrics
+- Logs integration
+
+**AKS - Azure Monitor:**
+- Container Insights
+- Metrics and logs
+- Live container logs
+- Performance monitoring
+
+### Rancher Monitoring Integration
+
+Deploy Rancher Monitoring stack:
+
+- Prometheus for metrics collection
+- Grafana for visualization
+- Alert Manager for notifications
+- Works with all hosted Kubernetes clusters
+
+## Troubleshooting
+
+### Check Operator Status
+
+**EKS Operator:**
+```bash
+kubectl get deployment -n cattle-system rancher-eks-operator
+kubectl logs -n cattle-system -l app=rancher-eks-operator
+```
+
+**Check Cluster Config:**
+```bash
+kubectl get eksclusterconfig -A
+kubectl describe eksclusterconfig <cluster-name>
+```
+
+### Common Issues
+
+**Credential Errors:**
+- Verify credentials are valid
+- Check IAM/RBAC permissions
+- Ensure correct environment (AKS)
+
+Reference: `pkg/api/norman/customization/aks/handler.go:162-213` (credential validation)
+
+**Cluster Creation Timeout:**
+- Check cloud provider quotas
+- Verify network connectivity
+- Review cloud provider console for errors
+
+**Agent Connection Failed:**
+- Ensure cluster API endpoint is accessible
+- Verify security group/firewall rules
+- Check Rancher server URL configuration
+
+### Validate Cloud Credentials
+
+Test credentials before creating clusters:
+
+**AKS:**
+- Rancher provides credential validation endpoint
+- Tests authentication and subscription access
+
+Reference: `pkg/api/norman/customization/aks/handler.go:162-213`
+
+**GKE/EKS:**
+- Create credentials through Rancher UI
+- UI validates access during creation
+
+## Cost Optimization
+
+### Right-Sizing Strategies
+
+**Node Instance Selection:**
+- Start with medium instances
+- Monitor resource utilization
+- Scale down if underutilized
+- Use spot/preemptible for non-critical workloads
+
+**Autoscaling Configuration:**
+- Set appropriate min/max nodes
+- Configure scale-down delays
+- Use pod disruption budgets
+- Enable cluster autoscaler
+
+**Reserved Capacity:**
+- Use reserved instances/commitments for baseline
+- Spot instances for burst capacity
+- Mix instance types for availability
+
+### Multi-Cloud Cost Comparison
+
+Consider total cost of ownership:
+- Control plane costs (EKS charges, GKE/AKS free)
+- Node compute costs
+- Network egress costs
+- Storage costs
+- Monitoring and logging costs
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RKE2 Provisioning" icon="server" href="./rke2">
+    Self-hosted alternative to cloud providers
+  </Card>
+  
+  <Card title="Cluster Management" icon="gauge" href="../management/overview">
+    Manage clusters after provisioning
+  </Card>
+  
+  <Card title="Multi-Cluster Apps" icon="layer-group" href="../../fleet/overview">
+    Deploy apps across multiple clusters
+  </Card>
+  
+  <Card title="Cloud Credentials" icon="key" href="../configuration/cloud-credentials">
+    Manage cloud provider credentials
+  </Card>
+</CardGroup>

@@ -1,0 +1,353 @@
+---
+title: High Availability Deployment
+description: Deploy Rancher in a highly available configuration for production workloads
+---
+
+For production environments, Rancher should be installed in a high-availability (HA) configuration on a Kubernetes cluster. This ensures continuous availability of the Rancher management server and provides resilience against node failures.
+
+## Architecture Overview
+
+A high-availability Rancher deployment consists of:
+
+- **Multiple Rancher replicas** - Default 3 replicas running across different nodes
+- **Kubernetes scheduling** - Automatic pod distribution and recovery
+- **etcd integration** - State stored in the Kubernetes cluster's etcd database
+- **Load balancer** - External load balancer distributing traffic to Rancher pods
+- **Ingress controller** - Routes HTTP/HTTPS traffic to Rancher services
+
+```
+                    ┌─────────────────┐
+                    │  Load Balancer  │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │ Ingress Controller│
+                    └────────┬────────┘
+                             │
+        ┏━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━┓
+        ┃                                          ┃
+   ┌────▼─────┐        ┌──────────┐        ┌──────▼───┐
+   │ Rancher  │        │ Rancher  │        │ Rancher  │
+   │  Pod 1   │        │  Pod 2   │        │  Pod 3   │
+   └────┬─────┘        └────┬─────┘        └────┬─────┘
+        │                   │                   │
+        └───────────────────┴───────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  etcd cluster   │
+                    └─────────────────┘
+```
+
+## Prerequisites
+
+### Supported Kubernetes Clusters
+
+For Rancher Support SLA coverage, use one of these Kubernetes distributions:
+
+- **RKE1** - Rancher Kubernetes Engine 1
+- **RKE2** - Rancher Kubernetes Engine 2
+- **K3s** - Lightweight Kubernetes
+- **AKS** - Azure Kubernetes Service
+- **EKS** - Amazon Elastic Kubernetes Service
+- **GKE** - Google Kubernetes Engine
+
+### Infrastructure Requirements
+
+#### Hardware Requirements
+
+**Minimum for small deployments (up to 100 clusters):**
+- 4 vCPUs
+- 8 GB RAM
+- 50 GB disk space
+
+**Recommended for production:**
+- 8 vCPUs per node
+- 16 GB RAM per node
+- 100 GB disk space per node
+- 3 or more worker nodes
+
+#### Network Requirements
+
+- **Load balancer** - Layer 4 or Layer 7 load balancer
+- **DNS** - Fully qualified domain name pointing to the load balancer
+- **Ports:**
+  - 80/TCP (HTTP)
+  - 443/TCP (HTTPS)
+  - 6443/TCP (Kubernetes API, if using RKE2/K3s)
+
+## High Availability Installation
+
+<Steps>
+
+### Prepare the Kubernetes Cluster
+
+Ensure you have a Kubernetes cluster with at least 3 worker nodes for optimal availability:
+
+```bash
+kubectl get nodes
+```
+
+Verify nodes are in Ready state:
+```
+NAME       STATUS   ROLES           AGE   VERSION
+node-1     Ready    control-plane   10d   v1.28.0
+node-2     Ready    worker          10d   v1.28.0
+node-3     Ready    worker          10d   v1.28.0
+```
+
+### Configure Load Balancer
+
+Set up a load balancer that forwards traffic to your Kubernetes cluster:
+
+**Layer 4 Load Balancer (TCP):**
+- Forward port 443 to the Kubernetes ingress controller (typically NodePort or LoadBalancer service)
+- Forward port 80 to the Kubernetes ingress controller (optional, for HTTP redirect)
+
+**Layer 7 Load Balancer (HTTP/HTTPS):**
+- Configure SSL termination at the load balancer (optional)
+- Forward traffic to the Kubernetes ingress controller
+
+### Install Rancher with HA Configuration
+
+Install Rancher with 3 replicas (default) using Helm:
+
+```bash
+helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
+kubectl create namespace cattle-system
+
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set replicas=3
+```
+
+### Configure Anti-Affinity Rules
+
+Ensure Rancher pods are distributed across different nodes using anti-affinity rules:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set replicas=3 \
+  --set antiAffinity=required
+```
+
+**Anti-affinity options:**
+- `preferred` (default) - Prefers different nodes but allows same-node scheduling if needed
+- `required` - Enforces different nodes, may leave pods pending if insufficient nodes
+
+### Verify HA Deployment
+
+Check that Rancher pods are distributed across nodes:
+
+```bash
+kubectl -n cattle-system get pods -l app=rancher -o wide
+```
+
+Expected output showing pods on different nodes:
+```
+NAME                       READY   STATUS    NODE
+rancher-7d56c8c9f-4xqpz    1/1     Running   node-1
+rancher-7d56c8c9f-8hjkl    1/1     Running   node-2
+rancher-7d56c8c9f-mwxyz    1/1     Running   node-3
+```
+
+### Test Failover
+
+Test the HA configuration by simulating a node failure:
+
+```bash
+# Cordon a node to prevent new pods
+kubectl cordon node-1
+
+# Delete a Rancher pod on that node
+kubectl -n cattle-system delete pod <pod-name>
+
+# Verify a new pod is scheduled on a different node
+kubectl -n cattle-system get pods -l app=rancher -o wide
+```
+
+</Steps>
+
+## Advanced HA Configuration
+
+### Multi-Node etcd Configuration
+
+Rancher integrates with the Kubernetes cluster's etcd database. For maximum availability:
+
+- **RKE1/RKE2/K3s**: Use at least 3 control-plane nodes with embedded etcd
+- **Managed Kubernetes (AKS/EKS/GKE)**: etcd is managed by the cloud provider
+- **External etcd**: Configure a separate etcd cluster for enhanced isolation
+
+### Resource Allocation
+
+Configure resource requests and limits to ensure consistent performance:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set replicas=3 \
+  --set resources.requests.cpu=2000m \
+  --set resources.requests.memory=4Gi \
+  --set resources.limits.cpu=4000m \
+  --set resources.limits.memory=8Gi
+```
+
+### Priority Class
+
+Rancher uses a `priorityClassName` to prevent eviction during resource pressure:
+
+```bash
+--set priorityClassName=rancher-critical
+```
+
+This is set by default and ensures Rancher pods are prioritized over workload pods.
+
+### Dynamic Replica Scaling
+
+Configure dynamic replica scaling based on available nodes:
+
+```bash
+--set replicas=-3
+```
+
+Setting a negative value dynamically scales replicas between 0 and the absolute value based on available nodes.
+
+## Load Balancing Strategies
+
+### Layer 4 Load Balancing
+
+**Advantages:**
+- Simple configuration
+- Low latency
+- SSL termination at Rancher
+
+**Configuration:**
+```yaml
+Backend Pool: Kubernetes worker nodes
+Protocol: TCP
+Ports: 443, 80
+Health Check: TCP 443
+```
+
+### Layer 7 Load Balancing
+
+**Advantages:**
+- SSL termination at load balancer
+- Advanced routing capabilities
+- Web Application Firewall (WAF) integration
+
+**Configuration:**
+```yaml
+Backend Pool: Kubernetes ingress controller
+Protocol: HTTPS
+Ports: 443
+Health Check: HTTPS GET /healthz
+SSL Certificate: Managed at load balancer
+```
+
+When using SSL termination at the load balancer:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set tls=external
+```
+
+## Monitoring and Maintenance
+
+### Health Checks
+
+Rancher includes built-in health probes:
+
+**Liveness Probe:**
+```yaml
+livenessProbe:
+  timeoutSeconds: 5
+  periodSeconds: 30
+  failureThreshold: 5
+```
+
+**Readiness Probe:**
+```yaml
+readinessProbe:
+  timeoutSeconds: 5
+  periodSeconds: 30
+  failureThreshold: 5
+```
+
+### Monitoring Endpoints
+
+Monitor Rancher availability:
+
+```bash
+# Check pod status
+kubectl -n cattle-system get pods -l app=rancher
+
+# Check service endpoints
+kubectl -n cattle-system get endpoints rancher
+
+# Check ingress status
+kubectl -n cattle-system get ingress
+```
+
+### Backup and Disaster Recovery
+
+<Warning>
+Regularly back up the Rancher cluster to prevent data loss.
+</Warning>
+
+**Backup strategy:**
+- etcd snapshots (automated in RKE1/RKE2/K3s)
+- Kubernetes resource manifests
+- Rancher database state
+
+## Troubleshooting HA Deployments
+
+### Pods Not Distributing Across Nodes
+
+Check anti-affinity rules:
+```bash
+kubectl -n cattle-system get deployment rancher -o yaml | grep -A 10 affinity
+```
+
+### Load Balancer Health Check Failures
+
+Verify ingress controller is running:
+```bash
+kubectl get pods -n ingress-nginx
+```
+
+Check service endpoints:
+```bash
+kubectl -n cattle-system describe service rancher
+```
+
+### Split-Brain Scenarios
+
+If experiencing network partitions:
+1. Check etcd cluster health
+2. Verify Kubernetes cluster connectivity
+3. Review load balancer logs
+4. Check for DNS resolution issues
+
+## Best Practices
+
+- Use at least **3 replicas** for production deployments
+- Enable **anti-affinity rules** to distribute pods across nodes
+- Configure **resource requests and limits** for predictable performance
+- Implement **monitoring and alerting** for Rancher pod health
+- Regularly **backup etcd** and Rancher state
+- Use **managed Kubernetes** (AKS/EKS/GKE) for simplified operations
+- Test **failover scenarios** regularly
+- Keep Rancher and Kubernetes versions up to date
+
+## Next Steps
+
+- Configure [authentication providers](/auth/overview)
+- Set up [backup and restore](/clusters/operations/backup-restore)
+- Review [monitoring and alerting](/advanced/monitoring)
+- Implement [disaster recovery](/clusters/operations/backup-restore) procedures

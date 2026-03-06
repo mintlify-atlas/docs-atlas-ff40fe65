@@ -1,0 +1,468 @@
+---
+title: Monitoring and Observability
+description: Configure and use Rancher's monitoring capabilities with Prometheus integration
+---
+
+## Overview
+
+Rancher provides comprehensive monitoring capabilities through integration with Prometheus and the Prometheus Operator. This enables cluster-level and project-level monitoring, alerting, and observability for your Kubernetes infrastructure and applications.
+
+## Monitoring Architecture
+
+Rancher's monitoring system consists of several key components:
+
+### Core Components
+
+#### Prometheus
+
+Prometheus is the core metrics collection and storage engine:
+
+- **Time-series database**: Stores metrics with timestamp and labels
+- **Pull-based model**: Scrapes metrics from configured targets
+- **PromQL**: Powerful query language for metric analysis
+- **Service discovery**: Automatically discovers targets in Kubernetes
+
+Source: pkg/image/origins.go:256 (prom-prometheus)
+
+#### Prometheus Operator
+
+The Prometheus Operator manages Prometheus instances declaratively:
+
+- Creates and manages Prometheus deployments
+- Handles ServiceMonitor and PodMonitor resources
+- Manages PrometheusRule resources for alerts and recording rules
+- Automatically updates configuration based on Kubernetes resources
+
+Source: pkg/image/origins.go:230 (prometheus-operator)
+
+#### Alertmanager
+
+Alertmanager handles alert routing and notifications:
+
+- Receives alerts from Prometheus
+- Groups, deduplicates, and routes alerts
+- Sends notifications to configured receivers (email, Slack, PagerDuty, etc.)
+- Supports silencing and inhibition rules
+
+Source: pkg/image/origins.go:227 (prometheus-alertmanager)
+
+### Monitoring Namespaces
+
+Rancher uses specific namespaces for monitoring components:
+
+- **cattle-prometheus**: Legacy namespace for cluster-level monitoring (source:pkg/monitoring/monitoring.go:12)
+- **cattle-monitoring-system**: Current namespace for monitoring stack (source:pkg/data/management/podadmissionconfigurationtemplate_data.go:24)
+- **rancher-alerting-drivers**: Alert driver integrations (source:pkg/data/management/podadmissionconfigurationtemplate_data.go:25)
+
+## Monitoring Levels
+
+Rancher supports monitoring at multiple levels:
+
+### Cluster-Level Monitoring
+
+Monitors the entire cluster infrastructure:
+
+- **Node metrics**: CPU, memory, disk, network usage
+- **Cluster resources**: Overall cluster capacity and utilization
+- **Control plane components**: API server, etcd, scheduler, controller manager
+- **System workloads**: Kubelet, kube-proxy, CNI plugins
+
+Application: cluster-alerting (source:pkg/monitoring/monitoring.go:18)
+Namespace: cattle-prometheus (source:pkg/monitoring/monitoring.go:12)
+
+### Project-Level Monitoring
+
+Provides isolation and multi-tenancy for monitoring:
+
+- **Project-specific metrics**: Only resources within the project namespace
+- **Isolated Prometheus**: Separate Prometheus instance per project
+- **Custom dashboards**: Project-specific Grafana dashboards
+- **RBAC integration**: Access control based on project membership
+
+Application: project-monitoring (source:pkg/monitoring/monitoring.go:17)
+Namespace pattern: cattle-prometheus-{projectName} (source:pkg/monitoring/monitoring.go:41)
+
+## Prometheus Integration
+
+### Metrics Collection
+
+Prometheus collects metrics from various sources:
+
+#### Node Exporter
+
+Collects node-level system metrics:
+
+- CPU usage and load average
+- Memory and swap utilization
+- Disk I/O and filesystem metrics
+- Network interface statistics
+
+Source: pkg/image/origins.go:224 (mirrored-prom-node-exporter)
+
+#### Kube-State-Metrics
+
+Exports Kubernetes object state as metrics:
+
+- Deployment status and replica counts
+- Pod phase and resource requests/limits
+- Node conditions and capacity
+- ConfigMap and Secret metadata
+
+#### cAdvisor
+
+Container-level metrics from kubelet:
+
+- Container CPU and memory usage
+- Network traffic per container
+- Filesystem I/O per container
+- Container lifecycle events
+
+### ServiceMonitor Resources
+
+ServiceMonitors define how Prometheus scrapes metrics:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: my-app-monitor
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: my-application
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+```
+
+Prometheus automatically discovers and scrapes targets matching ServiceMonitor definitions.
+
+Source reference: pkg/data/management/role_data.go:214 (RBAC for servicemonitors)
+
+### PrometheusRule Resources
+
+PrometheusRules define alerting and recording rules:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: my-app-rules
+  namespace: default
+spec:
+  groups:
+  - name: my-app-alerts
+    interval: 30s
+    rules:
+    - alert: HighErrorRate
+      expr: rate(http_requests_total{status="500"}[5m]) > 0.05
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: High error rate detected
+```
+
+Labels identify rules:
+- Label key: source (source:pkg/monitoring/monitoring.go:24)
+- Label value: rancher-alert (source:pkg/monitoring/monitoring.go:25)
+
+Source reference: pkg/data/management/role_data.go:214
+
+## Cluster Monitoring
+
+### Node Metrics
+
+Rancher collects and exposes node-level metrics:
+
+#### Node Count Metrics
+
+Tracks the number of nodes per cluster:
+
+```
+rancher_cluster_nodes{cluster="cluster1", provider="rke2"} 5
+```
+
+Source: pkg/metrics/node.go:26-32
+
+#### Node Core Metrics
+
+Tracks total CPU cores across clusters:
+
+```
+rancher_cluster_node_cores{cluster="cluster1", provider="rke2"} 20
+```
+
+Source: pkg/metrics/node.go:33-39
+
+### Prometheus Metrics Endpoint
+
+Rancher exposes Prometheus metrics:
+
+```
+GET /metrics
+```
+
+Metrics include:
+- Rancher server metrics
+- Cluster ownership information
+- Node counts and resource capacity
+- API request rates and latencies
+
+Source: pkg/multiclustermanager/routes.go:9 (prometheus client integration)
+
+### Metrics Registration
+
+Rancher registers custom metrics collectors:
+
+```go
+prometheus.MustRegister(clusterOwner)
+prometheus.MustRegister(numNodes)
+prometheus.MustRegister(numCores)
+```
+
+Source: pkg/metrics/metrics.go:46-50
+
+## Alerting
+
+### Alert Configuration
+
+Configure alerts through PrometheusRule resources or Rancher UI:
+
+1. **Define alert rules**: Specify conditions and thresholds
+2. **Configure receivers**: Set up notification channels
+3. **Set routing**: Determine which alerts go to which receivers
+4. **Test alerts**: Verify alert delivery
+
+### Alertmanager Configuration
+
+Configure Alertmanager through the alertmanager-rancher-monitoring ConfigMap:
+
+```yaml
+route:
+  group_by: ['alertname', 'cluster']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+receivers:
+- name: 'default'
+  slack_configs:
+  - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+    channel: '#alerts'
+```
+
+### Alert Receivers
+
+Alertmanager supports multiple receiver types:
+
+- **Email**: SMTP-based notifications
+- **Slack**: Webhook-based Slack messages
+- **PagerDuty**: Incident management integration
+- **Webhook**: Generic HTTP webhook
+- **Opsgenie**: Alert management platform
+- **VictorOps**: Incident response platform
+
+### Alertmanager Endpoints
+
+Access Alertmanager:
+
+- Service: alertmanager-operated (source:pkg/monitoring/monitoring.go:21)
+- Namespace: cattle-prometheus
+- Port: 9093 (source:pkg/monitoring/monitoring.go:45)
+- Headless service for clustering (source:pkg/monitoring/monitoring.go:21)
+
+## Monitoring Access Control
+
+### RBAC for Monitoring
+
+Rancher provides role templates for monitoring access:
+
+#### Project Monitoring View Role
+
+Read-only access to monitoring resources:
+
+- View Prometheus queries and dashboards
+- View alerts and alert status
+- Access Grafana dashboards
+- No ability to modify monitoring configuration
+
+Role: project-monitoring-readonly (source:pkg/data/management/role_data.go:347-349)
+
+### Monitoring Endpoints
+
+Rancher configures access to monitoring services:
+
+**Prometheus**:
+- http://rancher-monitoring-prometheus:9090
+- https://rancher-monitoring-prometheus:9090
+
+**Alertmanager**:
+- http://rancher-monitoring-alertmanager:9093
+- https://rancher-monitoring-alertmanager:9093
+
+**Grafana**:
+- http://rancher-monitoring-grafana:80
+- https://rancher-monitoring-grafana:80
+
+Source: pkg/data/management/role_data.go:352-357
+
+### Service Access Rules
+
+Services accessible for monitoring:
+- rancher-monitoring-prometheus (source:pkg/data/management/role_data.go:360)
+- rancher-monitoring-alertmanager (source:pkg/data/management/role_data.go:361)
+- rancher-monitoring-grafana (source:pkg/data/management/role_data.go:362)
+
+## Grafana Integration
+
+While not directly shown in the analyzed source code, Rancher's monitoring stack typically includes:
+
+- Pre-configured Grafana dashboards
+- Automatic Prometheus data source configuration
+- Dashboard provisioning for common metrics
+- Custom dashboard creation and management
+
+## Configuration and Customization
+
+### Monitoring Configuration Template
+
+Example monitoring configuration with customization options:
+
+```yaml
+# Node selector for Prometheus, Grafana, and exporters
+prometheus.nodeSelector.region: region-a
+prometheus.nodeSelector.zone: zone-b
+grafana.nodeSelector.region: region-a
+grafana.nodeSelector.zone: zone-b
+exporter-kube-state.nodeSelector.region: region-a
+exporter-kube-state.nodeSelector.zone: zone-b
+
+# Prometheus retention and persistence
+prometheus.retention: 360h
+prometheus.persistence.enabled: true
+prometheus.persistence.storageClass: default
+prometheus.persistence.accessMode: ReadWriteOnce
+prometheus.persistence.size: 50Gi
+
+# Grafana persistence
+grafana.persistence.enabled: false
+grafana.persistence.storageClass: default
+grafana.persistence.accessMode: ReadWriteOnce
+grafana.persistence.size: 10Gi
+
+# Node exporter
+exporter-node.ports.metrics.port: 9100
+```
+
+Source: pkg/monitoring/monitoring.go:48-95
+
+### Template-Based Configuration
+
+Rancher supports template prefixes for configuration:
+
+- **_tpl-Node_Selector**: Applies node selectors to multiple components
+- **_tpl-Storage_Class**: Applies storage configuration to multiple components
+
+Pattern: `_tpl-{ConfigName}` expands to `{component}.{configKey}`
+
+Example:
+```
+_tpl-Node_Selector | nodeSelector#(prometheus,grafana,exporter-kube-state)
+```
+
+Expands to:
+```
+prometheus.nodeSelector.*
+grafana.nodeSelector.*
+exporter-kube-state.nodeSelector.*
+```
+
+Source: pkg/monitoring/monitoring.go:48-94
+
+## Best Practices
+
+### Retention and Storage
+
+- Configure appropriate retention periods (default: 360h/15 days)
+- Use persistent volumes for production environments
+- Monitor storage usage and set up cleanup policies
+- Consider remote write for long-term storage
+
+### Resource Allocation
+
+- Allocate sufficient CPU and memory to Prometheus
+- Use node selectors to place monitoring components strategically
+- Configure resource requests and limits
+- Monitor monitoring system resource usage
+
+### Alert Management
+
+- Create meaningful alert rules with appropriate thresholds
+- Group related alerts to reduce noise
+- Configure appropriate notification channels
+- Test alerts regularly to ensure they work
+- Document runbooks for common alerts
+
+### Multi-Tenancy
+
+- Use project-level monitoring for team isolation
+- Configure RBAC to control monitoring access
+- Separate monitoring resources per project/team
+- Use label-based routing for alerts
+
+## Troubleshooting
+
+### Common Issues
+
+#### Prometheus Not Scraping Targets
+
+- Verify ServiceMonitor selectors match services
+- Check network policies allow scraping
+- Ensure metrics endpoints are accessible
+- Review Prometheus logs for scrape errors
+
+#### High Memory Usage
+
+- Reduce retention period
+- Decrease scrape frequency
+- Limit cardinality of labels
+- Configure memory limits appropriately
+
+#### Missing Metrics
+
+- Verify exporters are running
+- Check ServiceMonitor configuration
+- Ensure endpoints expose metrics in Prometheus format
+- Review Prometheus service discovery
+
+### Debugging Commands
+
+```bash
+# Check Prometheus status
+kubectl get prometheus -n cattle-monitoring-system
+kubectl describe prometheus -n cattle-monitoring-system
+
+# View Prometheus logs
+kubectl logs -n cattle-monitoring-system prometheus-rancher-monitoring-prometheus-0
+
+# Check ServiceMonitors
+kubectl get servicemonitors -A
+
+# View PrometheusRules
+kubectl get prometheusrules -A
+
+# Check Alertmanager
+kubectl get pods -n cattle-monitoring-system | grep alertmanager
+kubectl logs -n cattle-monitoring-system alertmanager-rancher-monitoring-alertmanager-0
+```
+
+## Next Steps
+
+- Configure ServiceMonitors for custom applications
+- Create custom dashboards in Grafana
+- Set up alert rules for critical metrics
+- Integrate with external monitoring systems
+- Explore [Telemetry](./telemetry.mdx) for usage analytics

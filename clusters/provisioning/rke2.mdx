@@ -1,0 +1,338 @@
+---
+title: RKE2 Cluster Provisioning
+description: Provision and configure RKE2 clusters with Rancher
+---
+
+RKE2 (RKE Government) is Rancher's next-generation Kubernetes distribution, focused on security and compliance. Rancher can provision RKE2 clusters on various infrastructure providers using node drivers.
+
+## Feature Availability
+
+RKE2 provisioning is controlled by the `rke2` feature flag:
+
+```go
+RKE2 = newFeature(
+    "rke2",
+    "Enable provisioning of RKE2",
+    true,  // enabled by default
+    false, // not dynamic (requires restart)
+    true   // managed by Rancher
+)
+```
+
+Reference: `pkg/features/feature.go:71-76`
+
+## RKE2 Architecture
+
+### Cluster Components
+
+RKE2 clusters provisioned by Rancher consist of:
+
+1. **Control Plane Nodes**: Run Kubernetes API server, scheduler, and controller manager
+2. **ETCD Nodes**: Distributed database for cluster state (can be co-located with control plane)
+3. **Worker Nodes**: Run application workloads
+
+### Provisioning Flow
+
+The provisioning process uses the CAPR (Cluster API Provider Rancher) framework:
+
+1. **Cluster Creation**: Define cluster specification with `provisioning.cattle.io/v1` API
+2. **Machine Provisioning**: Node drivers create infrastructure VMs
+3. **Bootstrap**: Install RKE2 on nodes via system agent
+4. **Cluster Configuration**: Apply machine global config and chart values
+5. **Ready State**: Cluster becomes available for workloads
+
+Reference: `pkg/controllers/capr/controllers.go:38-61`
+
+## Configuration Options
+
+### Cluster Specification
+
+Key configuration fields for RKE2 clusters:
+
+```yaml
+apiVersion: provisioning.cattle.io/v1
+kind: Cluster
+metadata:
+  name: my-rke2-cluster
+  namespace: fleet-default
+spec:
+  kubernetesVersion: v1.28.5+rke2r1
+  cloudCredentialSecretName: cattle-global-data:aws-credentials
+  rkeConfig:
+    machineGlobalConfig:
+      cni: calico
+      disable-kube-proxy: false
+      etcd-expose-metrics: false
+    machinePools:
+    - name: control-plane
+      quantity: 3
+      etcdRole: true
+      controlPlaneRole: true
+      machineConfigRef:
+        kind: Amazonec2Config
+        name: my-machine-config
+```
+
+Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:11-99`
+
+### Machine Global Configuration
+
+The `machineGlobalConfig` section accepts any RKE2 configuration option that would normally be placed in `/etc/rancher/rke2/config.yaml`:
+
+- **Networking**: CNI selection (canal, calico, cilium)
+- **ETCD**: Snapshot schedules, S3 backup configuration
+- **Security**: Pod Security Admission, SELinux
+- **Services**: Disable components, custom arguments
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:22-27`
+
+### Machine Pools
+
+Machine pools define groups of nodes with common configuration:
+
+**Required Fields:**
+- `name`: Unique identifier for the pool
+- `machineConfigRef`: Reference to node driver machine config
+
+**Optional Fields:**
+- `quantity`: Number of nodes (ignored if autoscaling enabled)
+- `etcdRole`: Run ETCD (must have min 1 node if enabled)
+- `controlPlaneRole`: Run control plane (must have min 1 node if enabled)
+- `workerRole`: Run workloads
+- `labels`: Kubernetes labels for nodes
+- `taints`: Kubernetes taints for nodes
+
+Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:170-349`
+
+### Upgrade Strategy
+
+Control how nodes are upgraded during cluster updates:
+
+```yaml
+rkeConfig:
+  upgradeStrategy:
+    controlPlaneConcurrency: "1"
+    controlPlaneDrainOptions:
+      enabled: true
+      force: false
+      ignoreDaemonSets: true
+      deleteEmptyDirData: true
+    workerConcurrency: "10%"
+    workerDrainOptions:
+      enabled: true
+      force: false
+```
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:81-112`
+
+## Step-by-Step Provisioning Guide
+
+<Steps>
+  <Step title="Create Cloud Credentials">
+    Store credentials for your infrastructure provider in Rancher.
+
+    Navigate to **Cluster Management** → **Cloud Credentials** → **Create**
+
+    Credentials are stored as secrets in format: `namespace:secret-name`
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:12-18`
+  </Step>
+
+  <Step title="Define Machine Configuration">
+    Create a machine configuration for your node driver (e.g., Amazonec2Config, AzureConfig).
+
+    Machine configs specify:
+    - Instance type/size
+    - Network configuration
+    - Storage volumes
+    - SSH keys
+    - Tags/labels
+
+    Reference: `pkg/controllers/capr/machineprovision/args.go:80-202`
+  </Step>
+
+  <Step title="Create Cluster Specification">
+    Define your RKE2 cluster with machine pools:
+
+    ```yaml
+    apiVersion: provisioning.cattle.io/v1
+    kind: Cluster
+    metadata:
+      name: my-rke2-cluster
+      namespace: fleet-default
+    spec:
+      kubernetesVersion: v1.28.5+rke2r1
+      cloudCredentialSecretName: cattle-global-data:aws-credentials
+      rkeConfig:
+        machineGlobalConfig:
+          cni: calico
+        machinePools:
+        - name: control-plane-pool
+          quantity: 3
+          etcdRole: true
+          controlPlaneRole: true
+          machineConfigRef:
+            kind: Amazonec2Config
+            name: cp-machine-config
+        - name: worker-pool
+          quantity: 3
+          workerRole: true
+          machineConfigRef:
+            kind: Amazonec2Config
+            name: worker-machine-config
+    ```
+  </Step>
+
+  <Step title="Monitor Provisioning">
+    Track cluster creation progress:
+
+    - **Provisioning**: Infrastructure nodes being created
+    - **Bootstrapping**: RKE2 installation in progress
+    - **Configuring**: Applying cluster configuration
+    - **Active**: Cluster ready for workloads
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:483-530`
+  </Step>
+
+  <Step title="Access Cluster">
+    Once the cluster is Active:
+
+    - Download kubeconfig from Rancher UI
+    - Use `kubectl` to manage cluster
+    - Deploy applications through Rancher Apps & Marketplace
+
+    Kubeconfig is stored in: `<namespace>/<cluster-name>-kubeconfig`
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:506-512`
+  </Step>
+</Steps>
+
+## Advanced Configuration
+
+### ETCD Snapshots
+
+Configure automatic ETCD backups:
+
+```yaml
+rkeConfig:
+  etcd:
+    snapshotScheduleCron: "0 */5 * * *"
+    snapshotRetention: 5
+    s3:
+      bucket: my-etcd-backups
+      endpoint: s3.amazonaws.com
+      cloudCredentialName: cattle-global-data:aws-credentials
+```
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:57-60`
+
+### Machine Selector Configuration
+
+Apply configuration to nodes matching labels:
+
+```yaml
+rkeConfig:
+  machineSelectorConfig:
+  - machineLabelSelector:
+      matchLabels:
+        workload: database
+    config:
+      kubelet-arg:
+      - "max-pods=150"
+      - "eviction-hard=memory.available<500Mi"
+```
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:29-34`
+
+### Private Registry Configuration
+
+Use private container registries:
+
+```yaml
+rkeConfig:
+  registries:
+    mirrors:
+      docker.io:
+        endpoint:
+        - "https://registry.example.com"
+    configs:
+      registry.example.com:
+        authConfigSecretName: registry-credentials
+```
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:51-55`
+
+## Machine Health Checks
+
+Rancher automatically creates MachineHealthChecks for RKE2 clusters:
+
+- **NodeStartupTimeout**: Maximum time for node to join (default: 10 minutes)
+- **UnhealthyNodeTimeout**: Time before marking node unhealthy
+- **MaxUnhealthy**: Number of unhealthy nodes tolerated before remediation
+
+Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:283-316`
+
+## Autoscaling
+
+Enable cluster autoscaling for worker pools (Rancher Prime feature):
+
+```yaml
+machinePools:
+- name: autoscaling-workers
+  workerRole: true
+  autoscalingMinSize: 2
+  autoscalingMaxSize: 10
+  machineConfigRef:
+    kind: Amazonec2Config
+    name: worker-config
+```
+
+Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:271-281`
+
+## Troubleshooting
+
+### Check Machine Status
+
+View machine provisioning status:
+
+```bash
+kubectl get machines -n fleet-default
+kubectl describe machine <machine-name> -n fleet-default
+```
+
+### View Provisioning Logs
+
+Check machine provision job logs:
+
+```bash
+kubectl logs -n fleet-default <machine-name>-provision
+```
+
+### Common Issues
+
+**Cloud Credential Errors**: Verify credentials have required permissions for:
+- VM creation/deletion
+- Network configuration
+- Storage volume management
+
+Reference: `pkg/controllers/capr/machineprovision/args.go:223-257`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Machine Pools" icon="layer-group" href="../management/machine-pools">
+    Advanced machine pool configuration
+  </Card>
+  
+  <Card title="ETCD Snapshots" icon="database" href="../operations/etcd-snapshots">
+    Backup and restore cluster state
+  </Card>
+  
+  <Card title="Cluster Upgrades" icon="arrow-up" href="../operations/upgrades">
+    Upgrade RKE2 cluster versions
+  </Card>
+  
+  <Card title="K3s Provisioning" icon="cloud" href="./k3s">
+    Lightweight alternative to RKE2
+  </Card>
+</CardGroup>

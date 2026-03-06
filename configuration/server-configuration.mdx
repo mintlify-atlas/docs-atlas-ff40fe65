@@ -1,0 +1,274 @@
+---
+title: Server Configuration
+description: Configure Rancher server startup options, runtime settings, and environment variables
+---
+
+Rancher server can be configured using CLI flags, environment variables, and Helm chart values. This page covers the primary configuration options available for customizing your Rancher deployment.
+
+## Command-Line Flags
+
+When running Rancher server, you can specify various CLI flags to control its behavior. These flags are defined in `main.go:main.go:51`.
+
+### Core Server Options
+
+#### Kubeconfig
+
+```bash
+--kubeconfig <path>
+```
+
+Specifies the Kube config file for accessing the Kubernetes cluster.
+
+- **Environment Variable**: `KUBECONFIG`
+- **Default**: None
+- **Source**: main.go:53
+
+#### Debug Mode
+
+```bash
+--debug
+```
+
+Enables debug-level logging for troubleshooting.
+
+- **Default**: `false`
+- **Source**: main.go:58
+
+#### Trace Mode
+
+```bash
+--trace
+```
+
+Enables trace-level logging (most verbose).
+
+- **Default**: `false`
+- **Source**: main.go:63
+
+### Network Configuration
+
+#### HTTP Listen Port
+
+```bash
+--http-listen-port <port>
+```
+
+Specifies the HTTP listen port for Rancher server.
+
+- **Default**: `8080`
+- **Source**: main.go:76
+
+#### HTTPS Listen Port
+
+```bash
+--https-listen-port <port>
+```
+
+Specifies the HTTPS listen port for Rancher server.
+
+- **Default**: `8443`
+- **Source**: main.go:81
+
+### Kubernetes Mode
+
+```bash
+--k8s-mode <mode>
+```
+
+Specifies the mode to run or access the Kubernetes API server for the management API.
+
+- **Options**: `embedded`, `external`, `auto`
+- **Default**: `auto`
+- **Source**: main.go:88
+
+### Logging Configuration
+
+#### Log Format
+
+```bash
+--log-format <format>
+```
+
+Specifies the log formatter to use.
+
+- **Options**: `json`, `text`, `simple`
+- **Default**: `simple`
+- **Source**: main.go:94
+
+### TLS/SSL Configuration
+
+#### ACME Domain
+
+```bash
+--acme-domain <domain>
+```
+
+Domain to register with Let's Encrypt for automatic certificate management.
+
+- **Environment Variable**: `ACME_DOMAIN`
+- **Default**: None
+- **Source**: main.go:98
+- **Note**: Can specify multiple domains
+
+#### No CA Certs
+
+```bash
+--no-cacerts
+```
+
+Skips CA certs population in settings when set to true.
+
+- **Default**: `false`
+- **Source**: main.go:104
+
+### Profiling
+
+#### Profile Listen Address
+
+```bash
+--profile-listen-address <address>
+```
+
+Address to listen on for profiling (pprof).
+
+- **Default**: `127.0.0.1:6060`
+- **Source**: main.go:151
+
+### Advanced Options
+
+#### Add Local Cluster
+
+```bash
+--add-local <value>
+```
+
+<Note>
+As of Rancher v2.5.0, this flag is deprecated and must be set to `true` for Rancher to start.
+</Note>
+
+- **Options**: `true`, `false`, `auto`
+- **Default**: `true`
+- **Hidden**: Yes
+- **Source**: main.go:68
+
+#### Aggregation Registration Timeout
+
+```bash
+--aggregation-registration-timeout <duration>
+```
+
+Timeout duration when waiting for registration requests from the aggregation layer.
+
+- **Environment Variable**: `AGGREGATION_REGISTRATION_TIMEOUT`
+- **Default**: `5m` (5 minutes)
+- **Source**: main.go:164
+
+#### Rancher Namespaces Options
+
+```bash
+--rancher-namespaces <config>
+```
+
+Configuration for Rancher namespace labels and annotations.
+
+- **Environment Variable**: `RANCHER_NAMESPACES_OPTIONS`
+- **Default**: None
+- **Source**: main.go:170
+
+## Environment Variables
+
+Many configuration options can be set using environment variables:
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|----------|
+| `KUBECONFIG` | Path to kubeconfig file | None |
+| `ACME_DOMAIN` | Domain for Let's Encrypt | None |
+| `AUDIT_LOG_PATH` | Path for audit logs | `/var/log/auditlog/rancher-api-audit.log` |
+| `AUDIT_LOG_MAXAGE` | Max days to retain audit logs | `10` |
+| `AUDIT_LOG_MAXBACKUP` | Max number of audit log files | `10` |
+| `AUDIT_LOG_MAXSIZE` | Max size of audit log in MB | `100` |
+| `AUDIT_LEVEL` | Audit log level (0-3) | `0` |
+| `AUDIT_LOG_ENABLED` | Enable audit logging | `false` |
+| `CATTLE_FEATURES` | Feature flag overrides | None |
+| `AGGREGATION_REGISTRATION_TIMEOUT` | Aggregation timeout | `5m` |
+| `RANCHER_NAMESPACES_OPTIONS` | Namespace configuration | None |
+| `CATTLE_DEV_MODE` | Enable development mode | None |
+| `RANCHER_VERSION_TYPE` | Rancher version type (prime) | None |
+
+## Helm Chart Configuration
+
+When deploying Rancher using Helm, you can configure these options using values:
+
+```yaml
+# Enable debug logging
+debug: false
+
+# Number of replicas
+replicas: 3
+
+# HTTP/HTTPS ports (via extraEnv)
+extraEnv:
+  - name: CATTLE_DEV_MODE
+    value: "true"
+
+# System default registry
+systemDefaultRegistry: ""
+
+# Priority class for pods
+priorityClassName: rancher-critical
+
+# Resource requests/limits
+resources: {}
+
+# Host networking
+hostNetwork: false
+```
+
+## Runtime Configuration
+
+### Version Information
+
+Rancher displays its version using the `version.FriendlyVersion()` function. The version is determined at build time.
+
+### Signal Handling
+
+Rancher uses the Wrangler signal context for graceful shutdown:
+
+```go
+ctx := signals.SetupSignalContext()
+```
+
+This allows Rancher to handle SIGTERM and SIGINT signals properly.
+
+### Log Server
+
+Rancher starts a log server with default settings:
+
+```go
+logserver.StartServerWithDefaults()
+```
+
+## Best Practices
+
+1. **Production Deployments**
+   - Always run Rancher in HA mode with at least 3 replicas
+   - Enable audit logging for compliance
+   - Use proper TLS certificates (not self-signed)
+   - Configure resource limits appropriately
+
+2. **Development Deployments**
+   - Enable debug or trace logging for troubleshooting
+   - Use `--profile-listen-address` for performance profiling
+   - Set `CATTLE_DEV_MODE` for development features
+
+3. **Security**
+   - Never expose the profiling endpoint publicly
+   - Use HTTPS (port 8443) for all production traffic
+   - Configure proper CA certificates with `--no-cacerts=false`
+   - Enable audit logging to track API access
+
+## Next Steps
+
+- [Feature Flags](/configuration/feature-flags) - Enable/disable specific features
+- [Audit Logging](/configuration/audit-logging) - Configure audit log settings
+- [SSL/TLS Configuration](/configuration/ssl-tls) - Set up certificates and TLS

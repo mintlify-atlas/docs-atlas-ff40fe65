@@ -1,0 +1,475 @@
+---
+title: Cluster Roles
+description: Cluster roles define permissions scoped to a specific Kubernetes cluster
+---
+
+Cluster roles define permissions that apply to a specific Kubernetes cluster. They are implemented using RoleTemplates with `context: "cluster"` and bound to users or groups via ClusterRoleTemplateBindings.
+
+## RoleTemplate for Clusters
+
+Cluster-scoped RoleTemplates define permissions that apply across an entire cluster.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:301-372`
+
+### Specification
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: cluster-owner
+spec:
+  displayName: Cluster Owner
+  context: cluster
+  builtin: true
+  clusterCreatorDefault: true
+  rules:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: ["*"]
+    - apiGroups: ["management.cattle.io"]
+      resources: ["clusters"]
+      verbs: ["own"]
+    - nonResourceURLs: ["*"]
+      verbs: ["*"]
+```
+
+### Key Fields
+
+#### context
+Must be set to `"cluster"` for cluster-scoped roles.
+
+#### clusterCreatorDefault
+If `true`, users who create a cluster automatically receive a binding with this role.
+
+**Example:** The built-in `cluster-owner` role has this set to `true`, making cluster creators owners of their clusters.
+
+**Bootstrapping:** During initialization, Rancher sets the "cluster-owner" role as the default for cluster creators.
+
+**Source:** `pkg/data/management/role_data.go:598-614`
+
+#### rules
+Kubernetes RBAC PolicyRules that define permissions in the cluster.
+
+#### external
+If `true`, rules are sourced from an existing ClusterRole in the local cluster with the same name. The `rules` field is ignored when `external: true`.
+
+**Use case:** Granting permissions defined by Kubernetes default ClusterRoles like `cluster-admin`.
+
+#### externalRules
+Required when `external: true` and no underlying ClusterRole exists. Provides fallback rules when the feature flag `external-rules` is enabled.
+
+#### roleTemplateNames
+List of other RoleTemplate names to inherit from. This role will grant all rules from inherited templates.
+
+## ClusterRoleTemplateBinding (CRTB)
+
+ClusterRoleTemplateBindings associate a subject (user or group) with a RoleTemplate in a specific cluster.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:428-465`
+
+### Specification
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ClusterRoleTemplateBinding
+metadata:
+  name: crtb-owner-abc123
+  namespace: c-m-abcdefgh
+spec:
+  clusterName: c-m-abcdefgh
+  userName: u-abc123
+  roleTemplateName: cluster-owner
+```
+
+### Fields
+
+All fields are **immutable** after creation. The namespace must match the cluster name.
+
+#### clusterName
+The `metadata.name` of the cluster. Must match the CRTB's namespace.
+
+#### userName
+Name of the Rancher User resource to bind.
+
+#### userPrincipalName
+Name of a user principal to bind (alternative to `userName`).
+
+#### groupName
+Name of a Rancher Group to bind.
+
+#### groupPrincipalName
+Name of a group principal to bind (alternative to `groupName`).
+
+**Note:** Specify exactly one subject: `userName`, `userPrincipalName`, `groupName`, or `groupPrincipalName`.
+
+#### roleTemplateName
+Name of the RoleTemplate to apply.
+
+### Status
+
+CRTBs track status for both local (management cluster) and remote (downstream cluster) resources:
+
+```yaml
+status:
+  observedGenerationLocal: 1
+  observedGenerationRemote: 1
+  lastUpdateTime: "2024-01-15T10:30:00Z"
+  summary: Complete
+  summaryLocal: Complete
+  summaryRemote: Complete
+  localConditions:
+    - type: RoleCreated
+      status: "True"
+  remoteConditions:
+    - type: RemoteClusterRoleCreated
+      status: "True"
+```
+
+## Built-in Cluster Roles
+
+Rancher provides several built-in cluster-scoped RoleTemplates.
+
+**Source:** `pkg/data/management/role_data.go:108-201`
+
+### cluster-admin
+
+**Display Name:** Kubernetes cluster-admin
+
+**Description:** The standard Kubernetes cluster administrator role.
+
+**Properties:**
+- `external: true` - References the Kubernetes built-in `cluster-admin` ClusterRole
+- `builtin: true`
+- `clusterCreatorDefault: true`
+
+### cluster-owner
+
+**Display Name:** Cluster Owner
+
+**Description:** Full administrative access to the cluster with ownership rights.
+
+**Key Permissions:**
+- All verbs on all resources (`*:*:*`)
+- `own` verb on `clusters` in `management.cattle.io` API group
+- Full access to provisioning resources (`provisioning.cattle.io/*`)
+- Manage etcd snapshots, machines, and machine configs
+- Update Pod Security Admission settings on projects
+- Access all non-resource URLs
+
+**Properties:**
+- `clusterCreatorDefault: true` - Assigned to cluster creators
+- `builtin: true`
+
+**Special:** The `own` verb allows deletion and full management of the cluster resource itself.
+
+**Source:** `pkg/data/management/role_data.go:118-128`
+
+### cluster-member
+
+**Display Name:** Cluster Member
+
+**Description:** Read access to cluster-level resources and ability to create projects.
+
+**Key Permissions:**
+- View navlinks, nodes, node pools, persistent volumes
+- View storage classes, API services, cluster events
+- View cluster repos and cluster role template bindings
+- Get local cluster resource
+- **Create projects** in the cluster
+- View machines and machine deployments
+- View node metrics
+
+**Use Case:** Standard member access for users who need to work within projects but also view cluster-level information.
+
+**Source:** `pkg/data/management/role_data.go:130-146`
+
+### projects-create
+
+**Display Name:** Create Projects
+
+**Description:** Permission to create new projects in the cluster.
+
+**Permissions:**
+- `create` verb on `projects` in `management.cattle.io`
+
+**Source:** `pkg/data/management/role_data.go:148-149`
+
+### projects-view
+
+**Display Name:** View All Projects
+
+**Description:** Read-only access to all projects and their metadata.
+
+**Key Permissions:**
+- Get, list, watch `projects` and `projectroletemplatebindings`
+- View namespaces, persistent volumes, storage classes
+- View cluster events
+- Inherits from `view` RoleTemplate
+
+**Source:** `pkg/data/management/role_data.go:151-159`
+
+### nodes-manage
+
+**Display Name:** Manage Nodes
+
+**Description:** Full control over cluster nodes and node pools.
+
+**Permissions:**
+- All verbs on nodes, node pools (Rancher resources)
+- All verbs on nodes (Kubernetes resources)
+- Manage machines and machine deployments (`cluster.x-k8s.io`)
+- Manage machine configs (`rke-machine-config.cattle.io`, `rke-machine.cattle.io`)
+- View cluster monitor graphs
+
+**Source:** `pkg/data/management/role_data.go:161-168`
+
+### nodes-view
+
+**Display Name:** View Nodes
+
+**Description:** Read-only access to node information.
+
+**Permissions:**
+- Get, list, watch nodes, node pools, and cluster monitor graphs
+- View machines, machine deployments, and machine configs
+
+**Source:** `pkg/data/management/role_data.go:170-177`
+
+### storage-manage
+
+**Display Name:** Manage Storage
+
+**Description:** Manage cluster-level storage resources.
+
+**Permissions:**
+- All verbs on persistent volumes
+- All verbs on storage classes
+- All verbs on persistent volume claims
+
+**Source:** `pkg/data/management/role_data.go:179-182`
+
+### clusterroletemplatebindings-manage
+
+**Display Name:** Manage Cluster Members
+
+**Description:** Add, modify, and remove cluster members.
+
+**Permissions:**
+- All verbs on `clusterroletemplatebindings`
+
+**Use Case:** Delegate member management without granting full cluster ownership.
+
+**Source:** `pkg/data/management/role_data.go:184-185`
+
+### clusterroletemplatebindings-view
+
+**Display Name:** View Cluster Members
+
+**Permissions:**
+- Get, list, watch `clusterroletemplatebindings`
+
+**Source:** `pkg/data/management/role_data.go:187-188`
+
+### clustercatalogs-manage
+
+**Display Name:** Manage Cluster Catalogs
+
+**Description:** Manage Helm chart repositories at the cluster level.
+
+**Permissions:**
+- All verbs on `clusterrepos` in `catalog.cattle.io`
+
+**Properties:**
+- `clusterCreatorDefault: true` - Assigned to cluster creators
+
+**Source:** `pkg/data/management/role_data.go:190-191`
+
+### backups-manage
+
+**Display Name:** Manage Cluster Backups
+
+**Permissions:**
+- All verbs on `etcdbackups` in `management.cattle.io`
+
+**Source:** `pkg/data/management/role_data.go:196-197`
+
+### navlinks-manage
+
+**Display Name:** Manage Navlinks
+
+**Permissions:**
+- All verbs on `navlinks` in `ui.cattle.io`
+
+**Source:** `pkg/data/management/role_data.go:199-200`
+
+## Permission Hierarchy
+
+### Owner vs Member vs Viewer
+
+- **Cluster Owner** - Full control including deletion, member management, and all cluster operations
+- **Cluster Member** - Can view cluster resources and create/manage projects
+- **Viewer Roles** - Read-only access to specific resource types
+
+### Cluster-Level vs Project-Level
+
+Cluster roles grant permissions across the entire cluster, including:
+- Cluster-scoped resources (nodes, persistent volumes, storage classes)
+- All namespaces in the cluster
+- Cluster metadata and settings
+
+Project roles (covered separately) are limited to namespaces within a project.
+
+## Ownership and Lifecycle
+
+### The "own" Verb
+
+The `own` verb is a Rancher-specific permission that indicates ownership of a cluster or project resource. Users with the `own` verb can:
+- Delete the cluster
+- Manage all aspects of the cluster
+- Transfer ownership
+
+**Check for ownership:** `pkg/controllers/management/auth/manager.go:868-896`
+
+### Creator Defaults
+
+When a user creates a cluster, Rancher automatically creates a CRTB granting the creator ownership:
+
+1. Cluster is created
+2. Find RoleTemplates with `clusterCreatorDefault: true`
+3. Create CRTB binding the creator to each matching role
+4. Creator immediately has full access without manual assignment
+
+## Management Plane Integration
+
+### Backing Namespaces
+
+Each cluster has a backing namespace in the management cluster (e.g., `c-m-abcdefgh`). CRTBs create Roles and RoleBindings in this namespace to authorize access to:
+
+- Project resources
+- ProjectRoleTemplateBindings (for cluster owners to manage project members)
+- Cluster-scoped management resources
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:463-522`
+
+### Membership Bindings
+
+When a CRTB is created, Rancher creates a "membership" ClusterRoleBinding that grants the subject access to the cluster custom resource in the management plane:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: <deterministic-name>
+  labels:
+    <crtb-namespace>/<crtb-name>: membership-binding-owner
+subjects:
+  - kind: User
+    name: u-abc123
+roleRef:
+  kind: ClusterRole
+  name: <cluster-role-name>
+```
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:124-204`
+
+## Common Patterns
+
+### Creating a Custom Cluster Role
+
+Grant node management and read-only project access:
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata:
+  name: custom-cluster-ops
+spec:
+  displayName: Cluster Operations
+  context: cluster
+  roleTemplateNames:
+    - nodes-manage
+    - projects-view
+  rules:
+    - apiGroups: ["management.cattle.io"]
+      resources: ["clusterevents"]
+      verbs: ["get", "list", "watch"]
+```
+
+### Binding a User to a Cluster Role
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ClusterRoleTemplateBinding
+metadata:
+  name: crtb-john-ops
+  namespace: c-m-abcdefgh
+spec:
+  clusterName: c-m-abcdefgh
+  userName: u-abc123
+  roleTemplateName: custom-cluster-ops
+```
+
+### Binding a Group to Cluster Owner
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ClusterRoleTemplateBinding
+metadata:
+  name: crtb-admins-owner
+  namespace: c-m-abcdefgh
+spec:
+  clusterName: c-m-abcdefgh
+  groupPrincipalName: keycloak_group://cluster-admins
+  roleTemplateName: cluster-owner
+```
+
+## Troubleshooting
+
+### Check CRTB Status
+
+```bash
+kubectl get clusterroletemplatebinding -n <cluster-namespace> <crtb-name> -o yaml
+```
+
+Inspect `status.summary`, `status.summaryLocal`, and `status.summaryRemote`.
+
+### Verify Cluster Resources Created
+
+In the management cluster:
+
+```bash
+# Check ClusterRoleBindings for membership
+kubectl get clusterrolebinding | grep <cluster-name>
+
+# Check Roles in cluster namespace
+kubectl get role -n <cluster-namespace>
+
+# Check RoleBindings in cluster namespace
+kubectl get rolebinding -n <cluster-namespace>
+```
+
+In the downstream cluster:
+
+```bash
+kubectl get clusterrole <roletemplate-name>
+kubectl get clusterrolebinding | grep <username>
+```
+
+### Common Issues
+
+**CRTB stuck with status "Error":**
+- Check that the RoleTemplate exists and is not locked
+- Verify the cluster namespace is not terminating
+- Review `status.localConditions` and `status.remoteConditions`
+
+**User cannot access cluster:**
+- Verify CRTB exists in cluster namespace
+- Check that cluster is in "Active" state
+- Ensure user or group principal is correctly specified
+
+## Related Resources
+
+- [RBAC Model](/auth/rbac) - Overview of Rancher's authorization system
+- [Global Roles](/auth/global-roles) - Global-level permissions
+- [Project Roles](/auth/project-roles) - Project-scoped permissions

@@ -1,0 +1,420 @@
+---
+title: Continuous Delivery with Fleet
+description: Implement continuous delivery workflows using Fleet's GitOps capabilities
+---
+
+## Overview
+
+Fleet provides a powerful continuous delivery system that automatically deploys applications from Git repositories to multiple Kubernetes clusters. This GitOps-based approach ensures that your clusters always reflect the desired state defined in Git.
+
+## Continuous Delivery Feature
+
+Fleet's GitOps capabilities are controlled by the continuous-delivery feature flag:
+
+```yaml
+Name: continuous-delivery
+Description: Gitops components in fleet
+Default: true
+Dynamic: false
+```
+
+Source: pkg/features/feature.go:53-58
+
+This feature must be enabled for full GitOps functionality. Changes to this feature require a Rancher restart.
+
+## Git Repository Integration
+
+### GitRepo Resource
+
+The GitRepo custom resource is the primary way to configure Fleet to monitor a Git repository:
+
+```yaml
+apiVersion: fleet.cattle.io/v1alpha1
+kind: GitRepo
+metadata:
+  name: my-application
+  namespace: fleet-default
+spec:
+  repo: https://github.com/example/my-app
+  branch: main
+  paths:
+  - /
+  targets:
+  - clusterSelector:
+      matchLabels:
+        env: production
+```
+
+### Repository Authentication
+
+Fleet supports multiple authentication methods:
+
+- **HTTPS with basic auth**: Username and password/token
+- **SSH keys**: For private repositories
+- **Public repositories**: No authentication required
+
+Credentials are stored in Kubernetes secrets referenced by the GitRepo.
+
+### Polling and Webhooks
+
+Fleet monitors repositories for changes:
+
+- **Polling**: Regularly checks the repository for new commits (default)
+- **Webhooks**: Can be configured for immediate deployments on push
+- **Poll interval**: Configurable per GitRepo resource
+
+## Fleet Bundles
+
+### What are Bundles?
+
+Bundles are Fleet's internal representation of application deployments:
+
+- Automatically created from GitRepo resources
+- Contain Kubernetes manifests and Helm charts
+- Include targeting information for cluster selection
+- Track deployment status across clusters
+
+Source reference: pkg/generated/controllers/fleet.cattle.io/v1alpha1/bundle.go
+
+### Bundle Structure
+
+A Bundle consists of:
+
+```yaml
+apiVersion: fleet.cattle.io/v1alpha1
+kind: Bundle
+metadata:
+  name: my-app-bundle
+spec:
+  resources:
+  - name: deployment.yaml
+    content: |
+      apiVersion: apps/v1
+      kind: Deployment
+      ...
+  targets:
+  - name: production-clusters
+    clusterSelector:
+      matchLabels:
+        env: production
+```
+
+### Bundle Resources
+
+Bundles can contain:
+
+- **Raw Kubernetes manifests**: YAML files with Kubernetes resources
+- **Helm charts**: Charts are automatically detected and deployed
+- **Kustomize overlays**: For environment-specific configurations
+- **Custom resource definitions**: Deployed before other resources
+
+Source: pkg/controllers/provisioningv2/managedchart/managedchart.go:149-157
+
+## Deployment Strategies
+
+### Cluster Targeting
+
+Fleet provides flexible cluster selection mechanisms:
+
+#### Label-Based Selection
+
+```yaml
+targets:
+- clusterSelector:
+    matchLabels:
+      env: production
+      region: us-west
+```
+
+#### Cluster Group Targeting
+
+```yaml
+targets:
+- clusterGroup: production-group
+```
+
+#### Named Cluster Targeting
+
+```yaml
+targets:
+- name: cluster1
+- name: cluster2
+```
+
+### Rolling Updates
+
+Fleet supports controlled rollout strategies:
+
+```yaml
+spec:
+  rolloutStrategy:
+    maxUnavailable: 1
+    maxSurge: 0
+```
+
+This ensures deployments happen gradually across clusters, reducing risk.
+
+### Staged Deployments
+
+Implement progressive delivery using cluster groups:
+
+1. **Development**: Deploy to dev clusters first
+2. **Staging**: After validation, promote to staging
+3. **Production**: Finally deploy to production clusters
+
+Use separate GitRepos or branches for each stage.
+
+## Customization and Overlays
+
+### Per-Cluster Customization
+
+Fleet allows cluster-specific configurations:
+
+```yaml
+targets:
+- name: cluster1
+  helm:
+    values:
+      replicas: 3
+- name: cluster2
+  helm:
+    values:
+      replicas: 5
+```
+
+### Kustomize Integration
+
+Use Kustomize for environment-specific overlays:
+
+```
+repo-structure/
+├── base/
+│   ├── kustomization.yaml
+│   └── deployment.yaml
+└── overlays/
+    ├── dev/
+    │   └── kustomization.yaml
+    └── prod/
+        └── kustomization.yaml
+```
+
+Fleet automatically detects and applies Kustomize configurations.
+
+### Helm Value Overrides
+
+Override Helm values per cluster or cluster group:
+
+```yaml
+spec:
+  helm:
+    chart: my-chart
+    repo: https://charts.example.com
+    values:
+      global:
+        domain: example.com
+  targets:
+  - clusterSelector:
+      matchLabels:
+        env: prod
+    helm:
+      values:
+        replicaCount: 3
+```
+
+## Monitoring Deployments
+
+### Deployment Status
+
+Fleet tracks deployment status for each cluster:
+
+- **Ready**: Successfully deployed and healthy
+- **NotReady**: Deployment in progress or issues detected
+- **Modified**: Local changes detected (drift from Git)
+- **WaitApplied**: Waiting for resources to be applied
+
+Source: pkg/controllers/provisioningv2/managedchart/managedchart.go:174
+
+### Bundle Status
+
+Check bundle deployment status:
+
+```bash
+kubectl get bundles -n fleet-default
+kubectl describe bundle my-app-bundle -n fleet-default
+```
+
+The status section shows:
+
+- Number of target clusters
+- Deployment progress per cluster
+- Any errors or warnings
+
+### GitRepo Status
+
+Monitor GitRepo synchronization:
+
+```bash
+kubectl get gitrepos -n fleet-default
+kubectl describe gitrepo my-application -n fleet-default
+```
+
+## Fleet Workspaces for Multi-Tenancy
+
+### Workspace Isolation
+
+Fleet workspaces provide multi-tenancy:
+
+- Each workspace is a separate namespace
+- Teams can manage their own GitRepos and Bundles
+- Clusters can be assigned to specific workspaces
+- RBAC controls access per workspace
+
+Default workspaces:
+- **fleet-default**: Default workspace for resources (source:pkg/fleet/const.go:12)
+- **fleet-local**: Workspace for local cluster (source:pkg/fleet/const.go:13)
+
+### Creating Workspaces
+
+Create a new Fleet workspace:
+
+```bash
+kubectl create namespace fleet-myteam
+kubectl label namespace fleet-myteam fleet.cattle.io/workspace=true
+```
+
+### Workspace Assignment
+
+Assign clusters to workspaces through Rancher or by labeling clusters:
+
+```yaml
+metadata:
+  labels:
+    fleet.cattle.io/workspace: fleet-myteam
+```
+
+Source reference: pkg/controllers/provisioningv2/fleetworkspace/controller.go:59
+
+## Best Practices
+
+### Repository Structure
+
+Organize your Git repositories effectively:
+
+- **Monorepo**: Single repository with multiple applications
+- **Per-app repositories**: Separate repository for each application
+- **Environment branches**: Use branches for dev, staging, production
+- **Directory-based**: Use paths to separate applications
+
+### Security Considerations
+
+- Store sensitive data in Kubernetes secrets, not Git
+- Use private repositories for proprietary applications
+- Implement RBAC to control GitRepo creation
+- Rotate Git credentials regularly
+- Review Git commit history for audit trail
+
+### Drift Detection
+
+Fleet detects when cluster state differs from Git:
+
+- **Automatic correction**: Fleet reapplies desired state
+- **Alerts**: Can be configured for drift detection
+- **Manual changes**: Discouraged in GitOps workflow
+
+### Rollback Procedures
+
+Revert to previous versions using Git:
+
+1. Identify the working commit in Git history
+2. Revert the problematic commit or update branch/tag
+3. Fleet automatically deploys the previous version
+4. Verify successful rollback across clusters
+
+## Troubleshooting
+
+### Common Issues
+
+#### GitRepo Not Syncing
+
+- Check repository URL and authentication
+- Verify network connectivity to Git server
+- Review GitRepo status for error messages
+- Check Fleet manager logs in cattle-fleet-system namespace
+
+#### Bundle Not Deploying
+
+- Verify cluster selectors match target clusters
+- Check cluster connectivity and Fleet agent status
+- Review Bundle status for deployment errors
+- Ensure target clusters have required resources
+
+#### Deployment Failures
+
+- Check application logs in target clusters
+- Verify resource manifests are valid
+- Ensure namespace and dependencies exist
+- Review Fleet agent logs on affected clusters
+
+### Debugging Commands
+
+```bash
+# Check Fleet system status
+kubectl get pods -n cattle-fleet-system
+
+# View GitRepo details
+kubectl describe gitrepo <name> -n fleet-default
+
+# Check Bundle status
+kubectl get bundles -A
+kubectl describe bundle <name> -n <namespace>
+
+# View Fleet agent logs
+kubectl logs -n cattle-fleet-system deployment/fleet-agent
+```
+
+## Advanced Scenarios
+
+### Multi-Repository Dependencies
+
+Deploy applications with dependencies from multiple repositories:
+
+1. Create separate GitRepos for each component
+2. Use dependency ordering through bundle weights
+3. Coordinate deployments using Fleet workspaces
+
+### Custom Resource Definitions
+
+Fleet handles CRD deployment automatically:
+
+- CRDs are detected and applied first
+- Other resources wait for CRD availability
+- Ensures proper dependency ordering
+
+Source: pkg/fleet/const.go:10 (fleet-crd chart)
+
+### Helm Chart Dependencies
+
+Manage Helm charts with subchart dependencies:
+
+- Fleet automatically resolves chart dependencies
+- Subcharts are downloaded and deployed
+- Values can be passed to subcharts
+
+## Integration with CI/CD
+
+Fleet complements CI/CD pipelines:
+
+1. **CI Pipeline**: Builds and tests application, pushes to registry
+2. **Update Git**: Pipeline updates Git with new image tags
+3. **Fleet Detection**: Fleet detects Git changes
+4. **Automatic Deployment**: Fleet deploys to target clusters
+5. **Status Reporting**: Fleet reports deployment status
+
+This separation allows CI to focus on building artifacts while Fleet handles deployment orchestration.
+
+## Next Steps
+
+- Explore [Fleet architecture](./overview.mdx#fleet-architecture) in detail
+- Configure GitRepos for your applications
+- Implement progressive delivery strategies
+- Set up monitoring and alerting for Fleet deployments

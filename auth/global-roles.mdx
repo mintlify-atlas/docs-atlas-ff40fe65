@@ -1,0 +1,321 @@
+---
+title: Global Roles
+description: Global roles define permissions that span the entire Rancher installation and all managed clusters
+---
+
+GlobalRoles define permissions that apply across the entire Rancher installation. They can grant access to resources in the local management cluster and optionally inherit permissions to all downstream clusters.
+
+## GlobalRole Resource
+
+GlobalRoles are cluster-scoped resources defined in the `management.cattle.io/v3` API group.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:142-190`
+
+### Specification
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: GlobalRole
+metadata:
+  name: admin
+spec:
+  displayName: Admin
+  description: Full administrative access
+  builtin: true
+  newUserDefault: false
+  rules:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: ["*"]
+    - nonResourceURLs: ["*"]
+      verbs: ["*"]
+  inheritedClusterRoles:
+    - cluster-owner
+  namespacedRules:
+    cattle-global-data:
+      - apiGroups: [""]
+        resources: ["secrets"]
+        verbs: ["create"]
+```
+
+### Fields
+
+#### displayName
+Human-readable name displayed in the Rancher UI.
+
+#### description
+Text that describes the role's purpose.
+
+#### rules
+Array of Kubernetes RBAC PolicyRules applied **only to the local management cluster**. These rules define what actions the role can perform on local cluster resources.
+
+#### inheritedClusterRoles
+List of RoleTemplate names whose permissions are granted **in every downstream cluster** (excluding the local cluster). Use this to grant cluster-level permissions across all managed clusters.
+
+**Example:** A GlobalRole with `inheritedClusterRoles: ["cluster-owner"]` gives users cluster-owner permissions on all downstream clusters.
+
+#### namespacedRules
+Map of namespace names to PolicyRules. These rules are active in specific namespaces of the **local cluster only**. Keys are exact namespace names (no wildcards).
+
+**Common use case:** Granting access to secrets in `cattle-global-data` or `fleet-default` namespaces.
+
+#### inheritedFleetWorkspacePermissions
+Permissions granted in all Fleet workspaces except the local one.
+
+**Sub-fields:**
+- `resourceRules` - Rules granted in backing namespaces for all Fleet workspaces
+- `workspaceVerbs` - Verbs for cluster-wide fleetworkspace resources
+
+#### newUserDefault
+If `true`, all new users automatically receive a binding to this GlobalRole.
+
+**Example:** The built-in "user" role has `newUserDefault: true` to grant baseline permissions to all users.
+
+#### builtin
+If `true`, this GlobalRole was created by Rancher and is immutable. Users cannot modify or delete built-in roles.
+
+## GlobalRoleBinding
+
+GlobalRoleBindings associate a subject (user or group) with a GlobalRole.
+
+**API Definition:** `pkg/apis/management.cattle.io/v3/authz_types.go:230-257`
+
+### Specification
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: GlobalRoleBinding
+metadata:
+  name: user-abc123-admin
+spec:
+  userName: u-abc123
+  globalRoleName: admin
+```
+
+### Fields
+
+All subject and role fields are **immutable** after creation.
+
+#### userName
+Name of the Rancher User resource to bind.
+
+#### userPrincipalName
+Name of a user principal to bind (e.g., `keycloak_user://userid`).
+
+#### groupPrincipalName
+Name of a group principal to bind (e.g., `keycloak_group://groupid`).
+
+**Note:** Specify exactly one of: `userName`, `userPrincipalName`, or `groupPrincipalName`.
+
+#### globalRoleName
+Name of the GlobalRole to bind to the subject.
+
+### Status
+
+GlobalRoleBindings track status separately for local and remote controllers:
+
+```yaml
+status:
+  observedGenerationLocal: 1
+  observedGenerationRemote: 1
+  lastUpdateTime: "2024-01-15T10:30:00Z"
+  summary: Complete
+  summaryLocal: Complete
+  summaryRemote: Complete
+  localConditions:
+    - type: ClusterRoleCreated
+      status: "True"
+      lastTransitionTime: "2024-01-15T10:30:00Z"
+  remoteConditions:
+    - type: RemoteRolesCreated
+      status: "True"
+      lastTransitionTime: "2024-01-15T10:30:00Z"
+```
+
+## Built-in Global Roles
+
+Rancher creates several built-in GlobalRoles during initialization.
+
+**Source:** `pkg/data/management/role_data.go:36-103`
+
+### admin
+Full administrative access to all Rancher resources.
+
+**Permissions:**
+- All verbs on all resources in all API groups
+- Access to all non-resource URLs
+
+**Usage:** Assigned to the default admin user created during bootstrap.
+
+### user
+Standard user role with ability to create clusters and manage own resources.
+
+**Key Permissions:**
+- Create clusters and node templates
+- View node drivers, Kontainer drivers, and settings
+- Manage own tokens and kubeconfigs
+- Create secrets in `cattle-global-data` and `fleet-default` namespaces
+- Create Fleet workspaces
+
+**Default:** `newUserDefault: true` - automatically assigned to new users.
+
+**Bootstrapping:** The "user" role is set as the default for new logins during the bootstrap process.
+
+**Source:** `pkg/data/management/role_data.go:579-596`
+
+### user-base
+Minimal permissions for any authenticated user.
+
+**Permissions:**
+- Update own user activity
+- Create password change requests
+- Manage own tokens and kubeconfigs
+- View settings, features, and notifications
+- Manage preferences
+
+### clusters-create
+Allows creating new Kubernetes clusters.
+
+**Permissions:**
+- Create `clusters` in `management.cattle.io` and `provisioning.cattle.io`
+- Create machine configs in `rke-machine-config.cattle.io`
+- View templates, node drivers, Kontainer drivers, and PSA templates
+- View cluster repos and etcd snapshots
+- Create secrets in `cattle-global-data` and `fleet-default`
+
+### Additional Specialized Roles
+
+- **nodedrivers-manage** - Manage node driver resources
+- **kontainerdrivers-manage** - Manage Kontainer driver resources
+- **users-manage** - Manage users, passwords, and global role bindings
+- **roles-manage** - Manage RoleTemplates
+- **authn-manage** - Manage authentication providers
+- **settings-manage** - Manage Rancher settings
+- **features-manage** - Manage feature flags
+- **view-rancher-metrics** - View Rancher metrics
+
+## User Management
+
+### Bootstrap Admin User
+
+During initial startup, Rancher creates a default admin user if none exists.
+
+**Process:**
+1. Check if `bootstrapAdminConfig` ConfigMap exists in `cattle-system` namespace
+2. If not, and no users exist, create admin user with label `authz.management.cattle.io/bootstrapping: admin-user`
+3. Generate or use provided bootstrap password
+4. Create GlobalRoleBinding to "admin" GlobalRole
+5. Create ConfigMap to prevent recreation
+
+**Source:** `pkg/data/management/role_data.go:421-573`
+
+### New User Defaults
+
+When a new user logs in:
+1. Rancher searches for GlobalRoles with `newUserDefault: true`
+2. Automatically creates GlobalRoleBindings for each matching role
+3. User immediately receives baseline permissions without admin intervention
+
+## Permission Propagation
+
+### Local Cluster Permissions
+
+The `rules` field in a GlobalRole translates directly to:
+- A ClusterRole in the local cluster with the same name
+- ClusterRoleBindings for each GlobalRoleBinding subject
+
+### Downstream Cluster Permissions
+
+The `inheritedClusterRoles` field creates:
+- ClusterRoleTemplateBindings in each downstream cluster
+- Bindings reference the specified RoleTemplate names
+- Permissions are inherited as those RoleTemplates define
+
+### Namespaced Permissions
+
+The `namespacedRules` field creates:
+- Role resources in each specified namespace
+- RoleBindings in those namespaces for each subject
+
+## Common Patterns
+
+### Creating a Custom Global Role
+
+Grant read-only access to all clusters:
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: GlobalRole
+metadata:
+  name: global-viewer
+spec:
+  displayName: Global Viewer
+  description: Read-only access to all clusters
+  newUserDefault: false
+  inheritedClusterRoles:
+    - view
+    - cluster-member
+  rules:
+    - apiGroups: ["management.cattle.io"]
+      resources: ["clusters", "projects"]
+      verbs: ["get", "list", "watch"]
+```
+
+### Binding a User to a Global Role
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: GlobalRoleBinding
+metadata:
+  name: user-john-global-viewer
+spec:
+  userName: u-abc123
+  globalRoleName: global-viewer
+```
+
+### Binding a Group to a Global Role
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: GlobalRoleBinding
+metadata:
+  name: group-admins-admin
+spec:
+  groupPrincipalName: keycloak_group://admins
+  globalRoleName: admin
+```
+
+## Troubleshooting
+
+### Check GlobalRoleBinding Status
+
+```bash
+kubectl get globalrolebinding user-abc123-admin -o yaml
+```
+
+Look at `status.summary` field:
+- `Complete` - All permissions successfully applied
+- `Error` - Check `status.conditions` for details
+
+### Verify Local Cluster Permissions
+
+Check that ClusterRole and ClusterRoleBinding were created:
+
+```bash
+kubectl get clusterrole <globalrole-name>
+kubectl get clusterrolebinding -l "<globalrolebinding-name>=owner"
+```
+
+### Verify Downstream Cluster Permissions
+
+Check for ClusterRoleTemplateBindings in downstream clusters:
+
+```bash
+kubectl get clusterroletemplatebinding -A | grep <username>
+```
+
+## Related Resources
+
+- [RBAC Model](/auth/rbac) - Overview of Rancher's authorization system
+- [Cluster Roles](/auth/cluster-roles) - Cluster-scoped permissions
+- [Project Roles](/auth/project-roles) - Project-scoped permissions

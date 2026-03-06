@@ -1,0 +1,626 @@
+---
+title: Authentication Providers
+description: Comprehensive guide to configuring and using authentication providers in Rancher
+---
+
+## Overview
+
+Rancher supports multiple authentication providers through a pluggable architecture. Each provider implements a common interface while supporting provider-specific features and workflows.
+
+All providers are configured through AuthConfig resources and managed centrally through the provider framework in `pkg/auth/providers/`.
+
+## Provider Architecture
+
+### Common Provider Interface
+
+Every authentication provider must implement the `common.AuthProvider` interface:
+
+```go
+type AuthProvider interface {
+    GetName() string
+    AuthenticateUser(w http.ResponseWriter, req *http.Request, input any) 
+        (apiv3.Principal, []apiv3.Principal, string, error)
+    GetPrincipal(principalID string, token accessor.TokenAccessor) (apiv3.Principal, error)
+    SearchPrincipals(name, principalType string, token accessor.TokenAccessor) 
+        ([]apiv3.Principal, error)
+    RefetchGroupPrincipals(principalID string, secret string) ([]apiv3.Principal, error)
+    CanAccessWithGroupProviders(userPrincipalID string, groups []apiv3.Principal) (bool, error)
+    GetUserExtraAttributes(userPrincipal apiv3.Principal) map[string][]string
+    IsDisabledProvider() (bool, error)
+    Logout(w http.ResponseWriter, r *http.Request, token accessor.TokenAccessor) error
+    LogoutAll(w http.ResponseWriter, r *http.Request, token accessor.TokenAccessor) error
+}
+```
+
+### Provider Registration
+
+Providers are registered during server startup in `pkg/auth/providers/providers.go`:
+
+- Each provider is configured with management context
+- Provider names are registered globally
+- Providers with secrets are tracked separately
+- Unrefreshable providers are marked
+
+## Local Authentication
+
+**Provider Name**: `local`
+
+**Location**: `pkg/auth/providers/local/`
+
+### Overview
+
+The local provider enables username/password authentication with credentials stored directly in Rancher. It is the default built-in authentication method.
+
+### Features
+
+**Password Security**
+- Modern: PBKDF2 with SHA-256 (default)
+- Legacy: bcrypt support for backwards compatibility
+- Configurable password complexity rules
+- Forced password change on first login
+- Password rotation policies
+
+**User Management**
+- Create local users via API or UI
+- Update user attributes
+- Enable/disable users
+- Delete users
+- Username-based search with indexing
+
+**Group Support**
+- Local groups for RBAC
+- Group membership management
+- Group-based principal search
+
+### Configuration
+
+Local authentication is always enabled and cannot be disabled. It serves as the fallback provider when external providers are unavailable.
+
+### Password Verification
+
+Password verification flow:
+1. User submits username and password
+2. Username looked up in user index
+3. Password hash retrieved from Kubernetes secret
+4. Hash verified using appropriate algorithm (PBKDF2 or bcrypt)
+5. User principal returned on success
+
+### Security Notes
+
+- Passwords never logged or exposed in API
+- Password hashes stored in Kubernetes secrets
+- Default admin user created on first startup
+- Rate limiting applied to login attempts
+
+## GitHub Authentication
+
+**Provider Name**: `github`
+
+**Location**: `pkg/auth/providers/github/`
+
+### Overview
+
+Authenticate users via GitHub OAuth. Users log in with their GitHub credentials, and Rancher syncs user and organization information.
+
+### Features
+
+- OAuth 2.0 authentication flow
+- User principal from GitHub user ID
+- Team/organization group principals
+- Automatic group synchronization
+- Per-user access token storage
+
+### Configuration
+
+**Required Settings**
+- `clientId`: GitHub OAuth application client ID
+- `clientSecret`: GitHub OAuth application client secret
+- `hostname`: GitHub hostname (default: github.com)
+
+**Optional Settings**
+- `tls`: Enable TLS verification
+- `allowedPrincipalIds`: Restrict access to specific users/teams
+
+### Setup
+
+1. Create OAuth App in GitHub
+2. Set Authorization callback URL to: `https://<rancher-server>/v1-public/github/login/callback`
+3. Configure clientId and clientSecret in Rancher
+4. Test configuration
+5. Enable provider
+
+### Group Synchronization
+
+GitHub provider automatically syncs:
+- User's organizations as group principals
+- Team memberships within organizations
+- Group cache refreshed periodically
+
+## GitHub App Authentication
+
+**Provider Name**: `githubapp`
+
+**Location**: `pkg/auth/providers/githubapp/`
+
+### Overview
+
+Authenticate using GitHub Apps instead of OAuth Apps. Provides more granular permissions and better security model.
+
+### Features
+
+- GitHub App installation flow
+- Installation-level access control
+- JWT-based authentication
+- Organization and repository restrictions
+- Enhanced audit trail
+
+### Configuration
+
+Similar to GitHub OAuth but uses GitHub App credentials:
+- App ID
+- Installation ID
+- Private key for JWT signing
+
+## Active Directory
+
+**Provider Name**: `activedirectory`
+
+**Location**: `pkg/auth/providers/activedirectory/`
+
+### Overview
+
+Authenticate against Microsoft Active Directory using LDAP protocol. Supports nested groups and complex AD topologies.
+
+### Features
+
+- LDAP/LDAPS connectivity
+- Nested group resolution
+- User and group search
+- Distinguished name (DN) support
+- Group membership caching
+- Service account for queries
+
+### Configuration
+
+**Connection Settings**
+- `servers`: List of AD domain controllers
+- `port`: LDAP port (default: 389 for LDAP, 636 for LDAPS)
+- `tls`: Enable LDAPS
+- `startTLS`: Use STARTTLS
+- `certificate`: CA certificate for TLS
+
+**Service Account**
+- `serviceAccountUsername`: Bind DN for service account
+- `serviceAccountPassword`: Service account password
+
+**Search Settings**
+- `userSearchBase`: Base DN for user searches
+- `groupSearchBase`: Base DN for group searches
+- `userObjectClass`: Object class for users (default: person)
+- `groupObjectClass`: Object class for groups (default: group)
+
+### Group Nesting
+
+Active Directory provider supports nested groups:
+- Groups within groups resolved recursively
+- Member/memberOf attributes traversed
+- Circular references detected and prevented
+
+## LDAP (OpenLDAP / FreeIPA)
+
+**Provider Names**: `openldap`, `freeipa`
+
+**Location**: `pkg/auth/providers/ldap/`
+
+### Overview
+
+Generic LDAP authentication for OpenLDAP, FreeIPA, and other LDAP-compatible directories.
+
+### Features
+
+- Standard LDAP v3 protocol
+- Direct user bind or service account
+- Group membership via attributes
+- Configurable search filters
+- TLS/STARTTLS support
+
+### Configuration
+
+Similar to Active Directory but with different defaults:
+- `userObjectClass`: inetOrgPerson (OpenLDAP)
+- `groupObjectClass`: groupOfNames (OpenLDAP)
+- `userMemberAttribute`: member or uniqueMember
+
+### FreeIPA Specifics
+
+FreeIPA provider includes:
+- POSIX group support
+- memberOf overlay support
+- Kerberos integration (future)
+
+## Azure AD
+
+**Provider Name**: `azuread`
+
+**Location**: `pkg/auth/providers/azure/`
+
+### Overview
+
+Authenticate via Microsoft Azure Active Directory using OAuth 2.0 and Microsoft Graph API.
+
+### Features
+
+- OAuth 2.0 / OpenID Connect flow
+- Microsoft Graph API integration
+- Group membership from Azure AD
+- Multi-tenant support
+- Conditional access compatibility
+
+### Configuration
+
+**Required Settings**
+- `applicationId`: Azure AD application (client) ID
+- `applicationSecret`: Application client secret
+- `tenantId`: Azure AD tenant ID
+- `endpoint`: Azure AD endpoint (default: global)
+
+**Optional Settings**
+- `graphEndpoint`: Microsoft Graph API endpoint
+- `tokenEndpoint`: OAuth token endpoint
+- `authEndpoint`: OAuth authorization endpoint
+
+### Setup
+
+1. Register application in Azure AD
+2. Configure redirect URI: `https://<rancher-server>/v1-public/azuread/login/callback`
+3. Grant API permissions: User.Read, Group.Read.All
+4. Create client secret
+5. Configure in Rancher
+
+## SAML Providers
+
+**Provider Names**: `ping`, `adfs`, `keycloak`, `okta`, `shibboleth`
+
+**Location**: `pkg/auth/providers/saml/`
+
+### Overview
+
+SAML 2.0 authentication supporting multiple identity providers. All SAML providers share common implementation with provider-specific configurations.
+
+### Supported SAML Providers
+
+**Ping Identity**
+- PingFederate
+- PingOne
+- Standard SAML 2.0 flow
+
+**ADFS (Active Directory Federation Services)**
+- Windows ADFS 2.0+
+- Claims-based authentication
+- Windows integrated auth support
+
+**Keycloak**
+- Open source identity provider
+- SAML and OIDC support
+- Role and group mapping
+
+**Okta**
+- Cloud identity service
+- SAML SSO
+- Multi-factor authentication
+
+**Shibboleth**
+- Academic/enterprise SSO
+- Federation support
+- Supports refresh (unlike other SAML providers)
+
+### Features
+
+- SAML 2.0 Web Browser SSO Profile
+- Service Provider (SP) initiated flow
+- Identity Provider (IDP) initiated flow
+- Assertion encryption
+- Signature verification
+- Group/role attribute mapping
+
+### Configuration
+
+**Service Provider (Rancher) Settings**
+- `rancherApiHost`: Rancher URL
+- `spCert`: Service provider certificate
+- `spKey`: Service provider private key
+
+**Identity Provider Settings**
+- `idpMetadataContent`: IDP metadata XML
+- `idpMetadataUrl`: URL to fetch IDP metadata
+- `ssoUrl`: Single sign-on URL
+- `entityId`: IDP entity ID
+- `idpCert`: IDP certificate for signature verification
+
+**Attribute Mapping**
+- `userNameAttr`: SAML attribute for username
+- `uidAttr`: SAML attribute for user ID
+- `groupsAttr`: SAML attribute for groups
+
+### Setup Example
+
+1. Download Rancher SAML metadata: `/v1-saml/{provider}/metadata`
+2. Configure Rancher as SP in your IDP
+3. Configure assertion consumer service URL: `/v1-saml/{provider}/login/callback`
+4. Upload IDP metadata to Rancher
+5. Configure attribute mappings
+6. Test SAML flow
+7. Enable provider
+
+### Limitations
+
+- Most SAML providers are unrefreshable (tokens cannot be refreshed automatically)
+- Shibboleth supports refresh mechanism
+- Group membership only updated on login
+
+## OIDC Providers
+
+### Generic OIDC
+
+**Provider Name**: `oidc`
+
+**Location**: `pkg/auth/providers/oidc/`
+
+#### Overview
+
+Generic OpenID Connect provider for any OIDC-compliant identity provider.
+
+#### Features
+
+- Full OIDC authentication flow
+- Discovery via .well-known/openid-configuration
+- ID token validation
+- Userinfo endpoint support
+- Group claims from ID token or userinfo
+
+#### Configuration
+
+**Required Settings**
+- `clientId`: OIDC client ID
+- `clientSecret`: OIDC client secret
+- `issuer`: OIDC issuer URL
+
+**Optional Settings**
+- `authEndpoint`: Authorization endpoint (auto-discovered)
+- `tokenEndpoint`: Token endpoint (auto-discovered)
+- `userInfoEndpoint`: Userinfo endpoint (auto-discovered)
+- `scope`: OAuth scopes (default: openid profile email groups)
+- `groupClaim`: JWT claim containing groups
+
+### Keycloak OIDC
+
+**Provider Name**: `keycloakoidc`
+
+**Location**: `pkg/auth/providers/keycloakoidc/`
+
+#### Overview
+
+Specialized OIDC provider for Keycloak with enhanced features.
+
+#### Features
+
+- All generic OIDC features
+- Keycloak-specific group mapping
+- Realm roles support
+- Client roles support
+- Offline token support
+
+### Google OAuth
+
+**Provider Name**: `googleoauth`
+
+**Location**: `pkg/auth/providers/googleoauth/`
+
+#### Overview
+
+Authenticate via Google accounts using OAuth 2.0.
+
+#### Features
+
+- Google OAuth 2.0 flow
+- G Suite domain restriction
+- Admin SDK for group sync
+- Service account delegation
+
+#### Configuration
+
+**Required Settings**
+- `oauthCredential`: OAuth client ID
+- `oauthSecret`: OAuth client secret
+
+**Optional Settings**
+- `hostedDomain`: Restrict to specific G Suite domain
+- `adminEmail`: Admin user for directory API
+- `serviceAccountCredential`: Service account for group sync
+
+### Generic OIDC
+
+**Provider Name**: `genericoidc`
+
+**Location**: `pkg/auth/providers/genericoidc/`
+
+#### Overview
+
+Simplified OIDC provider for basic OIDC implementations.
+
+#### Features
+
+- Minimal OIDC support
+- ID token only (no userinfo)
+- Unrefreshable tokens
+- Simple group claim mapping
+
+### AWS Cognito
+
+**Provider Name**: `cognito`
+
+**Location**: `pkg/auth/providers/cognito/`
+
+#### Overview
+
+Authenticate via Amazon Cognito user pools.
+
+#### Features
+
+- Cognito OAuth 2.0 flow
+- User pool integration
+- Group membership from Cognito
+- Unrefreshable (logout redirects to Cognito)
+
+#### Configuration
+
+**Required Settings**
+- `userPoolId`: Cognito user pool ID
+- `region`: AWS region
+- `appId`: Cognito app client ID
+- `appSecret`: Cognito app client secret
+
+## SCIM 2.0 Support
+
+**Location**: `pkg/auth/providers/scim/`
+
+### Overview
+
+SCIM (System for Cross-domain Identity Management) enables automated user/group provisioning from external identity providers.
+
+### Features
+
+- SCIM 2.0 protocol support
+- User provisioning
+- Group provisioning
+- Attribute mapping
+- Automatic user deactivation
+
+### Configuration
+
+Requires `SCIM` feature flag enabled:
+- SCIM endpoint: `/scim/v2`
+- Bearer token authentication
+- Service provider configuration endpoint
+
+## Provider Comparison
+
+| Provider | OAuth/OIDC | LDAP | SAML | Refreshable | Group Sync | Per-User Secrets |
+|----------|------------|------|------|-------------|------------|-----------------|
+| Local | - | - | - | N/A | Yes | No |
+| GitHub | Yes | No | No | Yes | Yes | Yes |
+| GitHub App | Yes | No | No | Yes | Yes | Yes |
+| Active Directory | No | Yes | No | Yes | Yes | No |
+| OpenLDAP | No | Yes | No | Yes | Yes | No |
+| FreeIPA | No | Yes | No | Yes | Yes | No |
+| Azure AD | Yes | No | No | Yes | Yes | Yes |
+| OIDC | Yes | No | No | Yes | Yes | Yes |
+| Keycloak OIDC | Yes | No | No | Yes | Yes | Yes |
+| Google OAuth | Yes | No | No | Yes | Yes | Yes |
+| Generic OIDC | Yes | No | No | No | Yes | Yes |
+| Cognito | Yes | No | No | No | Yes | Yes |
+| Ping (SAML) | No | No | Yes | No | Login-only | No |
+| ADFS (SAML) | No | No | Yes | No | Login-only | No |
+| Keycloak (SAML) | No | No | Yes | No | Login-only | No |
+| Okta (SAML) | No | No | Yes | No | Login-only | No |
+| Shibboleth (SAML) | No | No | Yes | Yes | Yes | No |
+
+## Provider Selection Guide
+
+### Use Local Provider When:
+- Testing or development
+- Small deployment without external identity
+- Fallback authentication method
+
+### Use LDAP/AD When:
+- Existing Active Directory infrastructure
+- Enterprise on-premises deployment
+- Complex group hierarchies
+- Need offline authentication
+
+### Use SAML When:
+- Existing SAML infrastructure
+- Enterprise SSO requirement
+- Federation across organizations
+- Need IDP-initiated flow
+
+### Use OIDC/OAuth When:
+- Modern cloud identity provider
+- Need automatic token refresh
+- Want standardized protocol
+- Multi-factor authentication via IDP
+
+### Use GitHub When:
+- Developer-focused organization
+- GitHub org/team structure matches RBAC needs
+- Open source or GitHub-centric workflow
+
+## Advanced Configuration
+
+### Multiple Providers
+
+Rancher supports enabling multiple providers simultaneously:
+- Users can choose which provider to authenticate with
+- Each user linked to single provider per session
+- Local provider always available as fallback
+- Provider switching requires re-authentication
+
+### Provider Refresh
+
+Refreshable providers automatically update group memberships:
+- Refresh daemon runs periodically
+- Group cache updated without user login
+- Configurable refresh interval
+- Force refresh via API
+
+### Provider Secrets
+
+Providers with per-user secrets:
+- OAuth access tokens stored securely
+- Separate Kubernetes secret per user
+- Used for group refresh operations
+- Automatic cleanup on user deletion
+
+## Troubleshooting
+
+### Connection Issues
+
+**LDAP/AD**
+- Verify network connectivity to LDAP server
+- Test with ldapsearch command
+- Check certificate validation for LDAPS
+- Verify service account credentials
+
+**OAuth/OIDC**
+- Verify redirect URI matches exactly
+- Check client ID and secret
+- Test discovery endpoint
+- Review OAuth provider logs
+
+**SAML**
+- Validate SAML metadata on both sides
+- Check certificate validity
+- Verify clock synchronization
+- Test with SAML tracer browser extension
+
+### Group Sync Issues
+
+- Check provider supports group refresh
+- Verify group claim/attribute configuration
+- Test user has group memberships in IDP
+- Force refresh via API
+- Check provider secret exists
+
+### Authentication Failures
+
+- Review Rancher logs for detailed errors
+- Check audit logs for authentication events
+- Verify user exists in external provider
+- Test provider configuration
+- Check user not disabled in Rancher
+
+## See Also
+
+- [Authentication Overview](/auth/overview) - Authentication architecture
+- [Token Management](/auth/tokens) - Token types and lifecycle
+- [RBAC](/auth/rbac) - Authorization and permissions

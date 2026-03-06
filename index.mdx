@@ -1,97 +1,118 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Rancher Documentation"
+description: "Complete container management platform for running Kubernetes everywhere with multi-cluster orchestration"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #2454fc 0%, #8cacd8 100%)',
+  borderRadius: '0px',
+  padding: '3rem 2rem',
+  marginBottom: '2rem',
+  color: 'white'
+}}>
+  <h1 style={{ fontSize: '2.5rem', fontWeight: 700, marginBottom: '1rem', color: 'white' }}>
+    Rancher
+  </h1>
+  <p style={{ fontSize: '1.25rem', marginBottom: '2rem', color: 'white', opacity: 0.95 }}>
+    Open source container management platform that makes it easy to run Kubernetes everywhere, meet IT requirements, and empower DevOps teams.
+  </p>
+  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+    <a href="/quickstart" style={{
+      background: '#FFFFFF',
+      color: '#2454fc',
+      padding: '0.75rem 1.5rem',
+      borderRadius: '9999px',
+      fontWeight: 600,
+      textDecoration: 'none',
+      display: 'inline-block'
+    }}>
+      Get Started
+    </a>
+    <a href="https://github.com/rancher/rancher" style={{
+      background: 'transparent',
+      color: '#FFFFFF',
+      border: '2px solid #FFFFFF',
+      padding: '0.75rem 1.5rem',
+      borderRadius: '9999px',
+      fontWeight: 600,
+      textDecoration: 'none',
+      display: 'inline-block'
+    }}>
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+Rancher simplifies Kubernetes cluster management across any infrastructure.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Multi-Cluster Management" icon="server" href="/clusters/provisioning/overview">
+    Provision and manage multiple Kubernetes clusters from a single control plane
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Hosted Kubernetes Support" icon="cloud" href="/clusters/provisioning/hosted-kubernetes">
+    Native support for AKS, EKS, GKE, and other managed Kubernetes services
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="RKE2 & K3s" icon="cubes" href="/clusters/provisioning/rke2">
+    Deploy lightweight and enterprise-grade Kubernetes distributions
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Import Existing Clusters" icon="download" href="/clusters/importing/import-existing">
+    Manage and monitor any existing Kubernetes cluster
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Getting Started
 
-Everything you need to create world-class documentation.
+Follow these guides to deploy and configure Rancher.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Rancher running in minutes
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Installation" icon="download" href="/installation">
+    Deploy Rancher on Kubernetes
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Architecture" icon="diagram-project" href="/architecture/overview">
+    Understand Rancher components
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## Core Capabilities
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
+<CardGroup cols={2}>
+  <Card title="Authentication & RBAC" icon="shield" href="/auth/overview">
+    Centralized authentication with support for Active Directory, LDAP, SAML, and more
+  </Card>
+  <Card title="Fleet GitOps" icon="git" href="/advanced/fleet/overview">
+    Deploy applications across clusters using GitOps workflows
+  </Card>
+  <Card title="Backup & Restore" icon="floppy-disk" href="/clusters/operations/backup-restore">
+    Protect your clusters with automated etcd backups
+  </Card>
+  <Card title="Catalog & Apps" icon="box" href="/advanced/catalog">
+    Deploy Helm charts and applications from curated catalogs
+  </Card>
+</CardGroup>
+
+## API & Integration
+
+Build custom integrations with Rancher's comprehensive APIs.
+
+<CardGroup cols={3}>
+  <Card title="API Overview" icon="code" href="/api/overview">
+    Explore the Rancher API
+  </Card>
+  <Card title="Cluster API" icon="server" href="/api/resources/clusters">
+    Manage clusters programmatically
+  </Card>
+  <Card title="Cloud Providers" icon="cloud" href="/api/cloud/aks">
+    Integrate with cloud providers
+  </Card>
+</CardGroup>
+
+## Community & Support
+
+<Card title="GitHub Repository" icon="github" href="https://github.com/rancher/rancher">
+  Star us on GitHub, contribute, and join the discussion
 </Card>

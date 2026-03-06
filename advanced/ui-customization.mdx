@@ -1,0 +1,454 @@
+---
+title: UI Customization
+description: Customize the Rancher UI with branding, themes, custom dashboards, and navigation links
+---
+
+# UI Customization
+
+Rancher provides extensive UI customization capabilities through settings and custom resources. You can customize branding, colors, logos, navigation links, and more to match your organization's requirements.
+
+## Branding Customization
+
+### Primary Colors
+
+Customize the primary and link colors:
+
+```yaml
+# Settings in management.cattle.io/v3/Setting
+ui-primary-color: "#007a33"
+ui-link-color: "#0056b3"
+```
+
+These settings control the main color scheme throughout the UI.
+
+### Logos and Favicon
+
+**Custom Logos**:
+```yaml
+# Light mode logo
+ui-logo-light: "https://example.com/logo-light.svg"
+
+# Dark mode logo  
+ui-logo-dark: "https://example.com/logo-dark.svg"
+
+# Custom favicon
+ui-favicon: "https://example.com/favicon.ico"
+```
+
+Logos should be:
+- SVG or PNG format
+- Maximum height: 40px
+- Transparent background recommended
+
+### Login Backgrounds
+
+Customize the login page background:
+
+```yaml
+# Light theme background
+ui-login-background-light: "https://example.com/bg-light.jpg"
+
+# Dark theme background
+ui-login-background-dark: "https://example.com/bg-dark.jpg"
+```
+
+**Recommended specifications**:
+- Image format: JPEG or PNG
+- Resolution: 1920x1080 or higher
+- File size: < 2MB for performance
+
+### Home Page Banners
+
+Add custom banners to the home page:
+
+```yaml
+# Light theme banner
+ui-banner-light: "https://example.com/banner-light.svg"
+
+# Dark theme banner
+ui-banner-dark: "https://example.com/banner-dark.svg"
+```
+
+## Page Banners
+
+### Header and Footer Banners
+
+Display custom banners in the header or footer:
+
+```yaml
+# Header banner (JSON format)
+ui-banner-header: |
+  {
+    "background": "#ff0000",
+    "color": "#ffffff",
+    "text": "Production Environment",
+    "textAlignment": "center"
+  }
+
+# Footer banner
+ui-banner-footer: |
+  {
+    "background": "#0066cc",
+    "color": "#ffffff",
+    "text": "Confidential - Internal Use Only",
+    "textAlignment": "center"
+  }
+```
+
+### Login Consent Banner
+
+Display a consent banner on the login page:
+
+```yaml
+ui-banner-login-consent: |
+  {
+    "text": "By logging in, you agree to our Terms of Service",
+    "button": "I Agree"
+  }
+```
+
+### UI Banners Setting
+
+Configure multiple banners using the `ui-banners` setting:
+
+```yaml
+ui-banners: |
+  {
+    "banner": {
+      "background": "#007a33",
+      "color": "#ffffff",
+      "text": "Welcome to Rancher"
+    },
+    "bannerFooter": {
+      "background": "#333333",
+      "color": "#ffffff",
+      "text": "© 2025 Your Organization"
+    }
+  }
+```
+
+## Custom Navigation Links
+
+### NavLink Custom Resource
+
+Create custom navigation links using the `ui.cattle.io/v1/NavLink` custom resource:
+
+```yaml
+apiVersion: ui.cattle.io/v1
+kind: NavLink
+metadata:
+  name: documentation
+spec:
+  label: "Documentation"
+  description: "Company documentation portal"
+  group: "help"
+  iconSrc: "https://example.com/docs-icon.svg"
+  target: "_blank"
+  toURL: "https://docs.example.com"
+```
+
+**Location**: `pkg/apis/ui.cattle.io/v1/types.go`
+
+### NavLink Specification
+
+**Fields**:
+- `label`: Display text for the link
+- `description`: Tooltip or description text
+- `sideLabel`: Additional label shown on the side
+- `iconSrc`: URL to icon image
+- `group`: Navigation group (e.g., "help", "tools")
+- `target`: Link target (`_blank`, `_self`)
+- `toURL`: External URL to navigate to
+- `toService`: Internal service reference
+
+### Linking to Kubernetes Services
+
+Create a link to an internal Kubernetes service:
+
+```yaml
+apiVersion: ui.cattle.io/v1
+kind: NavLink
+metadata:
+  name: monitoring
+spec:
+  label: "Monitoring Dashboard"
+  description: "Prometheus monitoring"
+  group: "tools"
+  toService:
+    namespace: "cattle-monitoring-system"
+    name: "prometheus"
+    scheme: "http"
+    port: 9090
+    path: "/graph"
+```
+
+**Service Configuration**:
+- `namespace`: Kubernetes namespace (required)
+- `name`: Service name (required)
+- `scheme`: `http` or `https` (default: `http`)
+- `port`: Service port (IntOrString)
+- `path`: URL path to append
+
+### Navigation Registration
+
+NavLinks are registered in the Steve API server:
+
+**Location**: `pkg/api/steve/navlinks/navlinks.go`
+
+```go
+func Register(ctx context.Context, server *steve.Server) {
+    server.SchemaFactory.AddTemplate(schema2.Template{
+        Group: "ui.cattle.io",
+        Kind:  "NavLink",
+        StoreFactory: func(innerStore types.Store) types.Store {
+            return &store{
+                Store: innerStore,
+            }
+        },
+    })
+}
+```
+
+## UI Settings Reference
+
+### General Settings
+
+**Location**: `pkg/settings/setting.go`
+
+```yaml
+# UI Brand (e.g., "suse")
+ui-brand: "rancher"
+
+# Vendor/Company name
+ui-pl: "rancher"
+
+# Default landing page
+ui-default-landing: "vue"
+
+# Preferred UI (vue dashboard vs ember)
+ui-preferred: "vue"
+```
+
+### Custom Links
+
+```yaml
+# Custom links (JSON format)
+ui-custom-links: |
+  {
+    "Support": "https://support.example.com",
+    "Training": "https://training.example.com",
+    "Status Page": "https://status.example.com"
+  }
+```
+
+### Dashboard Configuration
+
+```yaml
+# Dashboard path in container
+ui-dashboard-path: "/usr/share/rancher/ui-dashboard"
+
+# Dashboard index (remote)
+ui-dashboard-index: "https://releases.rancher.com/dashboard/latest/index.html"
+
+# Offline mode: "true", "false", or "dynamic"
+ui-offline-preferred: "dynamic"
+```
+
+### Performance Settings
+
+```yaml
+# UI performance settings (JSON format)
+ui-performance: |
+  {
+    "incrementalResourceLoading": true,
+    "resourceCountThreshold": 1000,
+    "manualRefresh": false
+  }
+```
+
+### UI Extensions
+
+```yaml
+# Configure UI extensions
+ui-extensions: |
+  {
+    "enabled": true,
+    "allowedExtensions": ["extension-1", "extension-2"]
+  }
+
+# Max plugin file size (bytes)
+max-ui-plugin-file-byte-size: "31457280"  # 30MB
+```
+
+## Content Configuration
+
+### Dynamic Content
+
+Configure dynamic content for the UI:
+
+```yaml
+# Enable dynamic content: "true", "log", or "debug"
+ui-content-enabled: "true"
+
+# Custom content endpoint
+ui-content-endpoint: "https://content.example.com/api"
+```
+
+### Community and Feedback
+
+```yaml
+# Display community links (deprecated, use ui-custom-links)
+ui-community-links: "true"
+
+# Custom issues URL
+ui-issues: "https://issues.example.com"
+
+# Feedback form URL (Ember UI)
+ui-feedback-form: "https://feedback.example.com"
+```
+
+## Theme Configuration
+
+Users can set their preferred theme:
+
+```yaml
+# User-specific setting (stored per user)
+ui-theme: "dark"  # "light" or "dark"
+```
+
+## Applying Customizations
+
+### Using kubectl
+
+Update settings using kubectl:
+
+```bash
+# Update a single setting
+kubectl patch setting ui-primary-color \
+  -p '{"value":"#007a33"}' \
+  --type=merge
+
+# Create a NavLink
+kubectl apply -f navlink.yaml
+```
+
+### Using Rancher UI
+
+1. Navigate to **Global Settings**
+2. Search for UI settings (filter by "ui-")
+3. Click **Edit** on any setting
+4. Enter the new value
+5. Click **Save**
+
+### Using Rancher API
+
+Update settings via the API:
+
+```bash
+curl -X PUT "https://rancher.example.com/v3/settings/ui-primary-color" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value":"#007a33"}'
+```
+
+## Helm Chart Values
+
+Configure UI settings during Helm installation:
+
+```yaml
+# values.yaml
+extraEnv:
+  - name: CATTLE_BASE_UI_BRAND
+    value: "suse"
+```
+
+## Best Practices
+
+1. **Test customizations** in a development environment first
+2. **Use HTTPS** for all custom resource URLs
+3. **Optimize images** for fast loading (< 2MB)
+4. **Provide both light and dark** theme assets
+5. **Document custom links** for your users
+6. **Use environment variables** for different environments
+7. **Backup settings** before making changes
+8. **Follow brand guidelines** for colors and logos
+9. **Test accessibility** of custom colors (contrast ratios)
+10. **Cache external resources** for better performance
+
+## Examples
+
+### Complete Branding Example
+
+```yaml
+# Primary branding
+ui-primary-color: "#00B140"
+ui-link-color: "#007A33"
+ui-brand: "acme"
+ui-pl: "ACME Corporation"
+
+# Logos
+ui-logo-light: "https://cdn.acme.com/logo-light.svg"
+ui-logo-dark: "https://cdn.acme.com/logo-dark.svg"
+ui-favicon: "https://cdn.acme.com/favicon.ico"
+
+# Backgrounds
+ui-login-background-light: "https://cdn.acme.com/login-bg-light.jpg"
+ui-login-background-dark: "https://cdn.acme.com/login-bg-dark.jpg"
+
+# Custom links
+ui-custom-links: |
+  {
+    "Help Desk": "https://support.acme.com",
+    "Documentation": "https://docs.acme.com",
+    "Status": "https://status.acme.com"
+  }
+```
+
+### Security Banner Example
+
+```yaml
+ui-banner-header: |
+  {
+    "background": "#d32f2f",
+    "color": "#ffffff",
+    "text": "CLASSIFIED - TOP SECRET",
+    "textAlignment": "center"
+  }
+
+ui-banner-footer: |
+  {
+    "background": "#d32f2f",
+    "color": "#ffffff",
+    "text": "This system is for authorized use only. All activity is monitored.",
+    "textAlignment": "center"
+  }
+```
+
+## Troubleshooting
+
+### Custom assets not loading
+
+- Verify URLs are accessible from browser
+- Check CORS headers on asset server
+- Ensure HTTPS is used for security
+- Check browser console for errors
+
+### Colors not applying
+
+- Clear browser cache
+- Check setting syntax (valid hex colors)
+- Verify settings are saved correctly
+- Test in incognito mode
+
+### NavLinks not appearing
+
+- Verify NavLink resource is created
+- Check group name is valid
+- Ensure user has permissions to view
+- Check Rancher logs for errors
+
+## Related Resources
+
+- **UI Settings**: `pkg/settings/setting.go` (lines 288-374)
+- **NavLink Types**: `pkg/apis/ui.cattle.io/v1/types.go`
+- **NavLink Registration**: `pkg/api/steve/navlinks/navlinks.go`

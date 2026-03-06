@@ -1,0 +1,189 @@
+---
+title: API Overview
+description: Overview of the Rancher API architecture, endpoints, and versioning
+---
+
+The Rancher API provides a comprehensive REST interface for managing Kubernetes clusters, projects, nodes, and workloads across multiple cloud providers and infrastructure platforms.
+
+## API Architecture
+
+Rancher provides multiple API groups organized by functionality:
+
+### Management API (`management.cattle.io/v3`)
+
+The Management API is the primary interface for cluster-level operations:
+
+- **Clusters**: Create and manage Kubernetes clusters
+- **Projects**: Multi-tenant project management
+- **Authentication**: User, token, and RBAC management
+- **Node Management**: Node pools, node templates, and node drivers
+- **Cloud Credentials**: Manage credentials for cloud providers
+
+### Provisioning API (`provisioning.cattle.io/v1`)
+
+The Provisioning API handles RKE2 and K3s cluster provisioning:
+
+- **RKE2/K3s Clusters**: Provision and configure clusters
+- **Machine Pools**: Define node pool configurations
+- **Agent Customization**: Customize cluster and fleet agents
+
+### Project API (`project.cattle.io/v3`)
+
+The Project API manages project-scoped resources:
+
+- **Workloads**: Deployments, StatefulSets, DaemonSets, CronJobs
+- **Namespaces**: Namespace management within projects
+- **Secrets**: Service accounts, certificates, credentials
+
+## API Endpoints
+
+### Base URL
+
+```
+https://<rancher-server>/v3
+```
+
+### Common Endpoints
+
+<CodeGroup>
+```bash Clusters
+GET    /v3/clusters
+GET    /v3/clusters/{id}
+POST   /v3/clusters
+PUT    /v3/clusters/{id}
+DELETE /v3/clusters/{id}
+```
+
+```bash Projects
+GET    /v3/projects
+GET    /v3/projects/{id}
+POST   /v3/projects
+PUT    /v3/projects/{id}
+DELETE /v3/projects/{id}
+```
+
+```bash Nodes
+GET    /v3/nodes
+GET    /v3/nodes/{id}
+POST   /v3/nodes
+PUT    /v3/nodes/{id}
+DELETE /v3/nodes/{id}
+```
+</CodeGroup>
+
+## API Versioning
+
+Rancher uses API versioning to maintain compatibility:
+
+### Management API Versions
+
+- **v3**: Current stable version for management operations
+- Backward compatibility maintained within major versions
+- Deprecated fields marked with annotations
+
+### Provisioning API Versions
+
+- **v1**: Current version for RKE2/K3s provisioning
+- Replaces legacy RKE (v1beta1) provisioning
+
+### API Group Format
+
+```
+<resource>.<group>/<version>
+```
+
+Examples:
+- `clusters.management.cattle.io/v3`
+- `clusters.provisioning.cattle.io/v1`
+- `workloads.project.cattle.io/v3`
+
+## Request Format
+
+All API requests use JSON format:
+
+```json
+{
+  "type": "cluster",
+  "name": "my-cluster",
+  "spec": {
+    "displayName": "My Production Cluster",
+    "description": "Production workload cluster"
+  }
+}
+```
+
+## Response Format
+
+API responses include:
+
+- **Resource data**: The requested resource
+- **Metadata**: Creation time, labels, annotations
+- **Status**: Current state and conditions
+- **Links**: Related resources and actions
+
+```json
+{
+  "id": "c-abcdef",
+  "type": "cluster",
+  "links": {
+    "self": "https://rancher-server/v3/clusters/c-abcdef",
+    "nodes": "https://rancher-server/v3/clusters/c-abcdef/nodes"
+  },
+  "metadata": {
+    "name": "my-cluster",
+    "creationTimestamp": "2024-01-01T00:00:00Z"
+  },
+  "spec": { ... },
+  "status": { ... }
+}
+```
+
+## Rate Limiting
+
+Rancher implements rate limiting to protect API stability:
+
+- Default: 100 requests per minute per user
+- Configurable via settings
+- Rate limit headers included in responses
+
+## Error Handling
+
+API errors follow standard HTTP status codes:
+
+| Code | Meaning |
+|------|----------|
+| 400 | Bad Request - Invalid input |
+| 401 | Unauthorized - Invalid or missing authentication |
+| 403 | Forbidden - Insufficient permissions |
+| 404 | Not Found - Resource does not exist |
+| 409 | Conflict - Resource already exists |
+| 422 | Unprocessable Entity - Validation error |
+| 500 | Internal Server Error |
+
+Error response format:
+
+```json
+{
+  "type": "error",
+  "status": 400,
+  "code": "InvalidFormat",
+  "message": "Field 'spec.displayName' is required"
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Learn how to authenticate API requests
+  </Card>
+  <Card title="Clusters" icon="server" href="/api/resources/clusters">
+    Manage Kubernetes clusters
+  </Card>
+  <Card title="Projects" icon="folder" href="/api/resources/projects">
+    Multi-tenant project management
+  </Card>
+  <Card title="Workloads" icon="layer-group" href="/api/resources/workloads">
+    Deploy and manage applications
+  </Card>
+</CardGroup>

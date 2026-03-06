@@ -1,80 +1,291 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start Guide
+description: Get Rancher up and running in minutes with this quick start guide
 ---
 
-## Get started in three steps
+## Get Started in Minutes
 
-Get your documentation site running locally and make your first customization.
+This quick start guide will help you deploy Rancher Server and create your first Kubernetes cluster. This is the fastest way to evaluate Rancher for development or testing.
 
-### Step 1: Set up your local environment
+<Warning>
+This quick start guide is intended for development and testing purposes only. For production deployments, see the [Installation Guide](/installation).
+</Warning>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Prerequisites
 
-### Step 2: Deploy your changes
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- A Linux server or VM with Docker installed
+- At least 4GB of RAM
+- A supported Linux distribution (see [Support Matrix](https://rancher.com/support-matrix/))
+- Ports 80 and 443 open and available
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+For detailed system requirements, see the [Installation Requirements](https://ranchermanager.docs.rancher.com/v2.8/pages-for-subheaders/installation-requirements).
 </Note>
+
+## Step 1: Install Rancher Server
+
+<Steps>
+  <Step title="Run the Rancher Docker Container">
+    Execute the following command to start Rancher Server:
+
+    ```bash
+    sudo docker run -d --restart=unless-stopped -p 80:80 -p 443:443 --privileged rancher/rancher
+    ```
+
+    <Info>
+    The `--privileged` flag is required for Rancher to function properly. The `--restart=unless-stopped` flag ensures Rancher automatically restarts if the container stops.
+    </Info>
+
+    This command will:
+    - Download the latest Rancher image
+    - Start Rancher on ports 80 (HTTP) and 443 (HTTPS)
+    - Configure automatic restart on failure
+  </Step>
+
+  <Step title="Verify the Container is Running">
+    Check that the Rancher container is running:
+
+    ```bash
+    docker ps
+    ```
+
+    You should see output similar to:
+
+    ```
+    CONTAINER ID   IMAGE             COMMAND           CREATED          STATUS          PORTS
+    abc123def456   rancher/rancher   "entrypoint.sh"   30 seconds ago   Up 29 seconds   0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+    ```
+  </Step>
+
+  <Step title="Wait for Rancher to Start">
+    Rancher may take a few minutes to fully initialize. You can check the logs:
+
+    ```bash
+    docker logs -f <container-id>
+    ```
+
+    Wait until you see messages indicating that Rancher is ready to serve requests.
+  </Step>
+</Steps>
+
+## Step 2: Access the Rancher UI
+
+<Steps>
+  <Step title="Open Rancher in Your Browser">
+    Navigate to:
+
+    ```
+    https://localhost
+    ```
+
+    <Note>
+    You'll see a certificate warning because Rancher uses a self-signed certificate by default. This is normal for development environments. Click through the warning to proceed.
+    </Note>
+  </Step>
+
+  <Step title="Get the Bootstrap Password">
+    On first access, Rancher will prompt you for the bootstrap password. Retrieve it from the container logs:
+
+    ```bash
+    docker logs <container-id> 2>&1 | grep "Bootstrap Password:"
+    ```
+
+    Copy the password shown in the output.
+  </Step>
+
+  <Step title="Set Your Admin Password">
+    Enter the bootstrap password and set your own admin password. Make sure to choose a strong password.
+
+    <Warning>
+    Save your admin password securely. You'll need it to access Rancher in the future.
+    </Warning>
+  </Step>
+
+  <Step title="Configure the Rancher Server URL">
+    Set the Rancher Server URL. For local development, you can use:
+
+    ```
+    https://localhost
+    ```
+
+    For production or remote access, use your server's hostname or IP address.
+  </Step>
+</Steps>
+
+## Step 3: Explore the Rancher Dashboard
+
+Once logged in, you'll see the Rancher dashboard with several key sections:
+
+<CardGroup cols={2}>
+  <Card title="Cluster Management" icon="server">
+    View and manage all your Kubernetes clusters from a centralized location.
+  </Card>
+  
+  <Card title="Continuous Delivery" icon="truck-fast">
+    Deploy applications using GitOps workflows with Fleet.
+  </Card>
+  
+  <Card title="Apps & Marketplace" icon="store">
+    Browse and deploy applications from Helm charts.
+  </Card>
+  
+  <Card title="User Settings" icon="user">
+    Configure authentication, API keys, and user preferences.
+  </Card>
+</CardGroup>
+
+## Step 4: Create Your First Cluster
+
+<Steps>
+  <Step title="Navigate to Cluster Management">
+    From the main dashboard, click on **Cluster Management** in the left sidebar.
+  </Step>
+
+  <Step title="Click 'Create' to Add a Cluster">
+    You'll see several options for creating clusters:
+
+    - **Custom** - Register existing Kubernetes clusters
+    - **RKE2/K3s** - Provision new clusters
+    - **Cloud Providers** - Create clusters on AKS, EKS, or GKE
+    - **Import** - Import existing clusters
+  </Step>
+
+  <Step title="Choose Your Cluster Type">
+    For a quick start, select **Custom** to explore the local cluster that Rancher creates automatically:
+
+    <Info>
+    The "local" cluster is where Rancher Server itself runs. In development environments, you can use this cluster to deploy test workloads.
+    </Info>
+  </Step>
+
+  <Step title="Explore the Cluster">
+    Click on the **local** cluster to explore:
+
+    - View cluster resources (nodes, pods, services)
+    - Deploy workloads
+    - Configure monitoring and logging
+    - Access kubectl shell
+    - Download kubeconfig
+  </Step>
+</Steps>
+
+## Step 5: Deploy Your First Workload
+
+<Steps>
+  <Step title="Access the Cluster Explorer">
+    From the cluster view, click **Explore** to open the Cluster Explorer.
+  </Step>
+
+  <Step title="Create a Deployment">
+    1. Navigate to **Workload** > **Deployments**
+    2. Click **Create**
+    3. Choose a name (e.g., "nginx-demo")
+    4. Set the container image to `nginx:latest`
+    5. Configure port 80
+    6. Click **Create**
+  </Step>
+
+  <Step title="Expose the Deployment">
+    Create a service to access your deployment:
+
+    1. Navigate to **Service Discovery** > **Services**
+    2. Click **Create**
+    3. Select your deployment
+    4. Choose service type (e.g., NodePort)
+    5. Click **Create**
+  </Step>
+
+  <Step title="Access Your Application">
+    Once the service is created, you can access your application using the NodePort or other configured method.
+  </Step>
+</Steps>
+
+## Next Steps
+
+Congratulations! You've successfully deployed Rancher and created your first workload. Here's what to explore next:
+
+<CardGroup cols={2}>
+  <Card title="Production Installation" icon="building" href="/installation">
+    Learn how to deploy Rancher for production with high availability
+  </Card>
+  
+  <Card title="Cluster Provisioning" icon="plus" href="/clusters/provisioning/overview">
+    Provision new Kubernetes clusters on various platforms
+  </Card>
+  
+  <Card title="Authentication Setup" icon="key" href="/auth/overview">
+    Configure external authentication providers
+  </Card>
+  
+  <Card title="GitOps with Fleet" icon="git-alt" href="/advanced/fleet/overview">
+    Deploy applications using GitOps workflows
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Can't access Rancher UI">
+    **Check if the container is running:**
+    ```bash
+    docker ps
+    ```
+
+    **View container logs:**
+    ```bash
+    docker logs <container-id>
+    ```
+
+    **Verify ports are not in use:**
+    ```bash
+    sudo netstat -tulpn | grep -E ':80|:443'
+    ```
+  </Accordion>
+
+  <Accordion title="Certificate warnings">
+    Rancher uses self-signed certificates by default. For development, you can safely bypass the browser warning. For production, configure proper SSL/TLS certificates.
+  </Accordion>
+
+  <Accordion title="Forgot admin password">
+    If you lose your admin password, you can reset it using the Rancher container:
+
+    ```bash
+    docker exec -ti <container-id> reset-password
+    ```
+  </Accordion>
+
+  <Accordion title="Performance issues">
+    Ensure your system meets the minimum requirements:
+    - 4GB RAM minimum (8GB recommended)
+    - 2 CPU cores minimum
+    - Sufficient disk space for images and data
+  </Accordion>
+</AccordionGroup>
+
+## Clean Up
+
+To remove Rancher and clean up:
+
+```bash
+# Stop the container
+docker stop <container-id>
+
+# Remove the container
+docker rm <container-id>
+
+# Remove the image (optional)
+docker rmi rancher/rancher
+```
+
+<Warning>
+Removing the container will delete all Rancher data unless you've configured persistent volumes.
+</Warning>
+
+## Additional Resources
+
+- [Rancher Documentation](https://ranchermanager.docs.rancher.com/v2.8)
+- [Rancher Forums](http://forums.rancher.com/)
+- [Rancher Slack](https://slack.rancher.io/)
+- [GitHub Repository](https://github.com/rancher/rancher)

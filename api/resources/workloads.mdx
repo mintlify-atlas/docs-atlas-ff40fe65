@@ -1,0 +1,726 @@
+---
+title: Workload API Resource
+description: Deploy and manage applications using the Rancher Workload API
+---
+
+Workloads represent deployed applications in Rancher. The Workload API provides a unified interface to manage Kubernetes workload resources including Deployments, StatefulSets, DaemonSets, CronJobs, and Jobs.
+
+## Workload Types
+
+Rancher aggregates multiple Kubernetes workload types into a single Workload resource:
+
+<CardGroup cols={2}>
+  <Card title="Deployment" icon="cube">
+    Stateless applications with rolling updates
+  </Card>
+  <Card title="StatefulSet" icon="database">
+    Stateful applications requiring stable identities
+  </Card>
+  <Card title="DaemonSet" icon="layer-group">
+    One pod per node (monitoring, logging agents)
+  </Card>
+  <Card title="CronJob" icon="clock">
+    Scheduled batch jobs
+  </Card>
+</CardGroup>
+
+## Workload Resource
+
+From `pkg/api/norman/customization/workload/workload.go:48`
+
+### Workload Spec
+
+<ParamField path="name" type="string" required>
+  Name of the workload
+</ParamField>
+
+<ParamField path="namespaceId" type="string" required>
+  Namespace where the workload is deployed
+</ParamField>
+
+<ParamField path="workloadType" type="string" required>
+  Type of workload: `deployment`, `statefulSet`, `daemonSet`, `cronJob`, `job`
+</ParamField>
+
+<ParamField path="containers" type="array<Container>" required>
+  List of containers in the workload
+  
+  <ParamField path="name" type="string" required>
+    Container name
+  </ParamField>
+  
+  <ParamField path="image" type="string" required>
+    Container image (e.g., `nginx:1.21`)
+  </ParamField>
+  
+  <ParamField path="ports" type="array<ContainerPort>">
+    Exposed container ports
+  </ParamField>
+  
+  <ParamField path="env" type="array<EnvVar>">
+    Environment variables
+  </ParamField>
+  
+  <ParamField path="resources" type="ResourceRequirements">
+    Resource requests and limits
+  </ParamField>
+  
+  <ParamField path="volumeMounts" type="array<VolumeMount>">
+    Volume mount points
+  </ParamField>
+</ParamField>
+
+<ParamField path="scale" type="integer">
+  Number of replicas (for Deployment, StatefulSet, ReplicaSet)
+</ParamField>
+
+<ParamField path="volumes" type="array<Volume>">
+  Volumes available to containers
+</ParamField>
+
+<ParamField path="labels" type="map<string, string>">
+  Labels for the workload
+</ParamField>
+
+<ParamField path="annotations" type="map<string, string>">
+  Annotations for the workload
+</ParamField>
+
+<ParamField path="scheduling" type="Scheduling">
+  Pod scheduling configuration
+  
+  <ParamField path="node" type="NodeScheduling">
+    Node selection criteria
+  </ParamField>
+  
+  <ParamField path="tolerations" type="array<Toleration>">
+    Tolerations for node taints
+  </ParamField>
+</ParamField>
+
+<ParamField path="paused" type="boolean">
+  Whether the deployment is paused (Deployment only)
+</ParamField>
+
+### Workload Status
+
+<ResponseField name="state" type="string">
+  Current state: `active`, `updating`, `paused`, `stopped`
+</ResponseField>
+
+<ResponseField name="replicas" type="integer">
+  Desired number of replicas
+</ResponseField>
+
+<ResponseField name="readyReplicas" type="integer">
+  Number of ready replicas
+</ResponseField>
+
+<ResponseField name="availableReplicas" type="integer">
+  Number of available replicas
+</ResponseField>
+
+<ResponseField name="unavailableReplicas" type="integer">
+  Number of unavailable replicas
+</ResponseField>
+
+<ResponseField name="publicEndpoints" type="array<PublicEndpoint>">
+  Exposed endpoints for the workload
+</ResponseField>
+
+## Create Deployment
+
+Deploy a stateless application:
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "workload",
+    "name": "nginx-web",
+    "namespaceId": "my-namespace",
+    "containers": [
+      {
+        "name": "nginx",
+        "image": "nginx:1.21",
+        "ports": [
+          {
+            "containerPort": 80,
+            "protocol": "TCP",
+            "name": "http"
+          }
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "128Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "512Mi"
+          }
+        },
+        "env": [
+          {
+            "name": "NGINX_HOST",
+            "value": "example.com"
+          }
+        ]
+      }
+    ],
+    "scale": 3,
+    "labels": {
+      "app": "nginx",
+      "environment": "production"
+    }
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads',
+    headers={
+        'Authorization': f'Bearer {RANCHER_TOKEN}',
+        'Content-Type': 'application/json'
+    },
+    json={
+        'type': 'workload',
+        'name': 'nginx-web',
+        'namespaceId': 'my-namespace',
+        'containers': [
+            {
+                'name': 'nginx',
+                'image': 'nginx:1.21',
+                'ports': [
+                    {
+                        'containerPort': 80,
+                        'protocol': 'TCP',
+                        'name': 'http'
+                    }
+                ],
+                'resources': {
+                    'requests': {
+                        'cpu': '100m',
+                        'memory': '128Mi'
+                    },
+                    'limits': {
+                        'cpu': '500m',
+                        'memory': '512Mi'
+                    }
+                }
+            }
+        ],
+        'scale': 3
+    }
+)
+
+workload = response.json()
+print(f"Workload ID: {workload['id']}")
+```
+</CodeGroup>
+
+## Create StatefulSet
+
+Deploy a stateful application with persistent storage:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "workload",
+    "name": "postgres-db",
+    "workloadType": "statefulSet",
+    "namespaceId": "databases",
+    "containers": [
+      {
+        "name": "postgres",
+        "image": "postgres:14",
+        "ports": [
+          {
+            "containerPort": 5432,
+            "protocol": "TCP"
+          }
+        ],
+        "env": [
+          {
+            "name": "POSTGRES_PASSWORD",
+            "valueFrom": {
+              "secretKeyRef": {
+                "name": "postgres-secret",
+                "key": "password"
+              }
+            }
+          }
+        ],
+        "volumeMounts": [
+          {
+            "name": "data",
+            "mountPath": "/var/lib/postgresql/data"
+          }
+        ]
+      }
+    ],
+    "scale": 3,
+    "volumeClaimTemplates": [
+      {
+        "name": "data",
+        "spec": {
+          "accessModes": ["ReadWriteOnce"],
+          "resources": {
+            "requests": {
+              "storage": "10Gi"
+            }
+          }
+        }
+      }
+    ]
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads
+```
+
+## Create DaemonSet
+
+Deploy a pod on every node:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "workload",
+    "name": "log-collector",
+    "workloadType": "daemonSet",
+    "namespaceId": "monitoring",
+    "containers": [
+      {
+        "name": "fluentd",
+        "image": "fluentd:v1.14",
+        "volumeMounts": [
+          {
+            "name": "varlog",
+            "mountPath": "/var/log",
+            "readOnly": true
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "varlog",
+        "hostPath": {
+          "path": "/var/log",
+          "type": "Directory"
+        }
+      }
+    ]
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads
+```
+
+## Create CronJob
+
+Schedule a recurring batch job:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "workload",
+    "name": "backup-job",
+    "workloadType": "cronJob",
+    "namespaceId": "default",
+    "schedule": "0 2 * * *",
+    "containers": [
+      {
+        "name": "backup",
+        "image": "backup-tool:latest",
+        "command": ["/bin/sh"],
+        "args": ["-c", "backup.sh"]
+      }
+    ]
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads
+```
+
+## List Workloads
+
+Retrieve all workloads in a project:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads
+```
+
+### Filter by Namespace
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  "https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads?namespaceId=production"
+```
+
+## Get Workload
+
+Retrieve a specific workload:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web
+```
+
+### Response Example
+
+```json
+{
+  "id": "deployment:my-namespace:nginx-web",
+  "type": "workload",
+  "links": {
+    "self": "...",
+    "update": "...",
+    "revisions": "..."
+  },
+  "name": "nginx-web",
+  "state": "active",
+  "containers": [...],
+  "scale": 3,
+  "status": {
+    "replicas": 3,
+    "readyReplicas": 3,
+    "availableReplicas": 3,
+    "unavailableReplicas": 0
+  },
+  "publicEndpoints": [
+    {
+      "addresses": ["192.168.1.100"],
+      "port": 80,
+      "protocol": "TCP"
+    }
+  ]
+}
+```
+
+## Update Workload
+
+Update workload configuration:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "containers": [
+      {
+        "name": "nginx",
+        "image": "nginx:1.22"
+      }
+    ]
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web
+```
+
+### Scale Workload
+
+Update the scale:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "scale": 5
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web
+```
+
+## Delete Workload
+
+Delete a workload:
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web
+```
+
+## Workload Actions
+
+From `pkg/api/norman/customization/workload/workload.go:69`
+
+### Pause Deployment
+
+Pause a deployment to prevent updates:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web?action=pause
+```
+
+### Resume Deployment
+
+Resume a paused deployment:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web?action=resume
+```
+
+### Redeploy
+
+Force a redeployment of the workload:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web?action=redeploy
+```
+
+### Rollback
+
+Rollback to a previous revision:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "replicaSetId": "replicaset:my-namespace:nginx-web-7d8c9f6b5"
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web?action=rollback
+```
+
+### Get Revisions
+
+List deployment revisions:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web/revisions
+```
+
+## Resource Requirements
+
+Define CPU and memory for containers:
+
+```json
+{
+  "resources": {
+    "requests": {
+      "cpu": "100m",
+      "memory": "128Mi"
+    },
+    "limits": {
+      "cpu": "500m",
+      "memory": "512Mi"
+    }
+  }
+}
+```
+
+<Info>
+  Always set resource requests and limits to ensure proper scheduling and prevent resource exhaustion.
+</Info>
+
+## Environment Variables
+
+### Static Values
+
+```json
+{
+  "env": [
+    {
+      "name": "APP_ENV",
+      "value": "production"
+    }
+  ]
+}
+```
+
+### From ConfigMap
+
+```json
+{
+  "env": [
+    {
+      "name": "CONFIG_VALUE",
+      "valueFrom": {
+        "configMapKeyRef": {
+          "name": "app-config",
+          "key": "config.json"
+        }
+      }
+    }
+  ]
+}
+```
+
+### From Secret
+
+```json
+{
+  "env": [
+    {
+      "name": "DATABASE_PASSWORD",
+      "valueFrom": {
+        "secretKeyRef": {
+          "name": "db-secret",
+          "key": "password"
+        }
+      }
+    }
+  ]
+}
+```
+
+## Scheduling
+
+### Node Selection
+
+```json
+{
+  "scheduling": {
+    "node": {
+      "nodeSelector": {
+        "disktype": "ssd",
+        "environment": "production"
+      }
+    }
+  }
+}
+```
+
+### Tolerations
+
+```json
+{
+  "scheduling": {
+    "tolerations": [
+      {
+        "key": "dedicated",
+        "operator": "Equal",
+        "value": "gpu",
+        "effect": "NoSchedule"
+      }
+    ]
+  }
+}
+```
+
+### Affinity Rules
+
+```json
+{
+  "scheduling": {
+    "affinity": {
+      "podAffinity": {
+        "requiredDuringSchedulingIgnoredDuringExecution": [
+          {
+            "labelSelector": {
+              "matchExpressions": [
+                {
+                  "key": "app",
+                  "operator": "In",
+                  "values": ["cache"]
+                }
+              ]
+            },
+            "topologyKey": "kubernetes.io/hostname"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Set Resource Limits">
+    Always define resource requests and limits:
+    - Requests ensure proper scheduling
+    - Limits prevent resource hogging
+    - Required for QoS guarantees
+  </Accordion>
+
+  <Accordion title="Use Health Checks">
+    Configure liveness and readiness probes:
+    - Liveness: Restart unhealthy containers
+    - Readiness: Control traffic routing
+    - Startup: Handle slow-starting applications
+  </Accordion>
+
+  <Accordion title="Leverage Labels">
+    Use meaningful labels for organization:
+    - `app`: Application name
+    - `version`: Application version
+    - `component`: Application component
+    - `environment`: Deployment environment
+  </Accordion>
+
+  <Accordion title="Store Secrets Securely">
+    Never hardcode sensitive data:
+    - Use Kubernetes Secrets
+    - Reference secrets via environment variables
+    - Rotate secrets regularly
+  </Accordion>
+
+  <Accordion title="Configure Rolling Updates">
+    For Deployments, configure update strategy:
+    - `maxSurge`: Extra pods during update
+    - `maxUnavailable`: Pods that can be down
+    - Balance between speed and availability
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring Workloads
+
+### Check Workload Status
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/workloads/deployment:my-namespace:nginx-web
+```
+
+### View Pod Logs
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/pods/my-namespace:nginx-web-7d8c9f6b5-abcde/logs
+```
+
+### Execute Commands
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": ["/bin/sh", "-c", "ls -la"]
+  }' \
+  https://rancher-server/v3/projects/c-m-abc123:p-xyz789/pods/my-namespace:nginx-web-7d8c9f6b5-abcde?action=execute
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Services" icon="network-wired" href="/guides/services">
+    Expose workloads with services
+  </Card>
+  <Card title="Ingress" icon="globe" href="/guides/ingress">
+    Configure external access
+  </Card>
+  <Card title="Volumes" icon="hard-drive" href="/guides/volumes">
+    Attach persistent storage
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/guides/monitoring">
+    Monitor application metrics
+  </Card>
+</CardGroup>

@@ -1,0 +1,362 @@
+---
+title: API Authentication
+description: Authenticate with the Rancher API using tokens and bearer authentication
+---
+
+Rancher API uses token-based authentication to secure API access. All API requests must include a valid authentication token.
+
+## Authentication Methods
+
+### Bearer Token Authentication
+
+The primary authentication method uses bearer tokens in the Authorization header:
+
+```bash
+curl -H "Authorization: Bearer token-xxxxx:xxxxxxxxxxxxxxxx" \
+  https://rancher-server/v3/clusters
+```
+
+### Basic Authentication
+
+Basic authentication can be used for initial token generation:
+
+```bash
+curl -u "username:password" \
+  https://rancher-server/v3-public/localProviders/local?action=login
+```
+
+## Token Types
+
+Rancher supports multiple token types for different use cases.
+
+### User Tokens
+
+User tokens are associated with a specific user account:
+
+<ParamField path="userId" type="string" required>
+  The ID of the user who owns this token
+</ParamField>
+
+<ParamField path="authProvider" type="string" required>
+  Authentication provider (local, github, activedirectory, etc.)
+</ParamField>
+
+<ParamField path="ttl" type="integer">
+  Token TTL in milliseconds. 0 means never expires
+</ParamField>
+
+<ParamField path="enabled" type="boolean" default="true">
+  Whether the token is enabled and can be used
+</ParamField>
+
+<ParamField path="description" type="string">
+  Human-readable description of the token's purpose
+</ParamField>
+
+### Service Account Tokens
+
+Service account tokens are used for automated workflows:
+
+<ParamField path="accountName" type="string" required>
+  Name of the service account
+</ParamField>
+
+<ParamField path="accountUid" type="string">
+  UID of the service account
+</ParamField>
+
+<ParamField path="token" type="string" writeOnly>
+  The actual token value (only returned on creation)
+</ParamField>
+
+## Creating API Tokens
+
+### Create User Token via UI
+
+1. Navigate to **User Settings** > **API & Keys**
+2. Click **Add Key**
+3. Set description and expiration
+4. Save the token securely (shown only once)
+
+### Create Token via API
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Authorization: Bearer <existing-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "token",
+    "description": "CI/CD Pipeline Token",
+    "ttl": 0
+  }' \
+  https://rancher-server/v3/tokens
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://rancher-server/v3/tokens',
+    headers={
+        'Authorization': 'Bearer <existing-token>',
+        'Content-Type': 'application/json'
+    },
+    json={
+        'type': 'token',
+        'description': 'CI/CD Pipeline Token',
+        'ttl': 0
+    }
+)
+
+token_data = response.json()
+print(f"Token: {token_data['token']}")
+```
+
+```go Go
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+func createToken(rancherURL, bearerToken string) {
+	payload := map[string]interface{}{
+		"type":        "token",
+		"description": "CI/CD Pipeline Token",
+		"ttl":         0,
+	}
+
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", 
+		fmt.Sprintf("%s/v3/tokens", rancherURL), 
+		bytes.NewBuffer(body))
+	
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", bearerToken))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, _ := client.Do(req)
+	defer resp.Body.Close()
+}
+```
+</CodeGroup>
+
+### Response
+
+<ResponseField name="token" type="string">
+  The authentication token value. Save this securely - it won't be shown again.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Unique identifier for the token
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  ID of the user who owns this token
+</ResponseField>
+
+<ResponseField name="expiresAt" type="string">
+  ISO 8601 timestamp when the token expires
+</ResponseField>
+
+<ResponseField name="userPrincipal" type="object">
+  Principal information for the token owner
+</ResponseField>
+
+## Token Management
+
+### List Tokens
+
+Retrieve all tokens for the authenticated user:
+
+```bash
+curl -H "Authorization: Bearer token-xxxxx:xxxxxxxxxxxxxxxx" \
+  https://rancher-server/v3/tokens
+```
+
+### Delete Token
+
+Revoke a token:
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer token-xxxxx:xxxxxxxxxxxxxxxx" \
+  https://rancher-server/v3/tokens/<token-id>
+```
+
+### Update Token
+
+Modify token properties (description, enabled status):
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer token-xxxxx:xxxxxxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "Updated description",
+    "enabled": false
+  }' \
+  https://rancher-server/v3/tokens/<token-id>
+```
+
+## Token Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Short-Lived Tokens for Automation">
+    Set appropriate TTL values for automated workflows. Tokens for CI/CD should expire after the pipeline completes.
+  </Accordion>
+
+  <Accordion title="Rotate Tokens Regularly">
+    Implement token rotation policies, especially for long-lived service accounts.
+  </Accordion>
+
+  <Accordion title="Scope Tokens Appropriately">
+    Use cluster-scoped tokens when possible instead of global admin tokens.
+  </Accordion>
+
+  <Accordion title="Store Tokens Securely">
+    Never commit tokens to version control. Use secret management systems like:
+    - Kubernetes Secrets
+    - HashiCorp Vault
+    - Cloud provider secret managers
+  </Accordion>
+
+  <Accordion title="Monitor Token Usage">
+    Track token activity via audit logs to detect suspicious behavior.
+  </Accordion>
+</AccordionGroup>
+
+## Token Attributes
+
+### Token Object Schema
+
+From `pkg/apis/management.cattle.io/v3/authn_types.go:30`:
+
+<ResponseField name="token" type="string">
+  The actual token value (write-only, only returned on creation)
+</ResponseField>
+
+<ResponseField name="userPrincipal" type="Principal">
+  Principal representing the authenticated user
+</ResponseField>
+
+<ResponseField name="groupPrincipals" type="array<Principal>">
+  List of group principals the user belongs to
+</ResponseField>
+
+<ResponseField name="providerInfo" type="map<string, string>">
+  Additional information from the authentication provider
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  Reference to the user who owns this token
+</ResponseField>
+
+<ResponseField name="authProvider" type="string">
+  Authentication provider (local, github, ldap, etc.)
+</ResponseField>
+
+<ResponseField name="ttl" type="integer">
+  Time to live in milliseconds. 0 means never expires.
+</ResponseField>
+
+<ResponseField name="lastUsedAt" type="timestamp">
+  Last time the token was used for authentication
+</ResponseField>
+
+<ResponseField name="isDerived" type="boolean">
+  Whether this is a derived token (created automatically)
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Human-readable description of the token
+</ResponseField>
+
+<ResponseField name="expired" type="boolean">
+  Whether the token has expired
+</ResponseField>
+
+<ResponseField name="clusterName" type="string">
+  Cluster scope for cluster-scoped tokens
+</ResponseField>
+
+<ResponseField name="enabled" type="boolean" default="true">
+  Whether the token is active and can be used
+</ResponseField>
+
+## API Access Patterns
+
+### Cluster-Scoped Access
+
+Create tokens scoped to specific clusters:
+
+```json
+{
+  "type": "token",
+  "description": "Dev Cluster Access",
+  "clusterName": "c-m-abc123",
+  "ttl": 86400000
+}
+```
+
+### Project-Scoped Access
+
+Access resources within a specific project using project membership and RBAC:
+
+```bash
+curl -H "Authorization: Bearer token-xxxxx:xxxxxxxxxxxxxxxx" \
+  https://rancher-server/v3/projects/<project-id>/workloads
+```
+
+### Global Access
+
+Global admin tokens can access all resources:
+
+```bash
+curl -H "Authorization: Bearer token-xxxxx:xxxxxxxxxxxxxxxx" \
+  https://rancher-server/v3/clusters
+```
+
+<Warning>
+  Limit the use of global admin tokens. Use scoped tokens wherever possible.
+</Warning>
+
+## Troubleshooting Authentication
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="401 Unauthorized">
+    - Token may have expired
+    - Token may be disabled
+    - Authorization header may be malformed
+    - Check token format: `Bearer token-xxxxx:xxxxxxxxxxxxxxxx`
+  </Accordion>
+
+  <Accordion title="403 Forbidden">
+    - User lacks permissions for the requested resource
+    - Check RBAC roles and bindings
+    - Verify cluster/project membership
+  </Accordion>
+
+  <Accordion title="Token Not Working After Creation">
+    - Allow a few seconds for token propagation
+    - Verify the token was copied correctly
+    - Check that `enabled` field is true
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Cluster Management" icon="server" href="/api/resources/clusters">
+    Use your token to manage clusters
+  </Card>
+  <Card title="RBAC" icon="shield" href="/guides/rbac">
+    Learn about role-based access control
+  </Card>
+</CardGroup>

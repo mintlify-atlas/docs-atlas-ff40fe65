@@ -1,0 +1,382 @@
+---
+title: Amazon Elastic Kubernetes Service (EKS) Integration
+description: Configure and manage EKS clusters with Rancher's EKS driver
+---
+
+## Overview
+
+Rancher provides native integration with Amazon Elastic Kubernetes Service (EKS) through the `ClusterDriverEKS` driver. This enables full lifecycle management of EKS clusters including provisioning, updating, and importing existing clusters.
+
+## Cluster Driver
+
+**Driver Name:** `EKS`
+
+Defined in: `pkg/apis/management.cattle.io/v3/cluster_types.go:83`
+
+```go
+ClusterDriverEKS = "EKS"
+```
+
+## Configuration Spec
+
+EKS clusters are configured using the `EKSClusterConfigSpec` structure.
+
+### Cluster Spec Fields
+
+```yaml
+spec:
+  eksConfig:
+    amazonCredentialSecret: string    # Reference to AWS credential secret
+    displayName: string               # EKS cluster name
+    region: string                    # AWS region (e.g., us-west-2)
+    kubernetesVersion: string         # Kubernetes version
+    imported: bool                    # Whether cluster is imported
+```
+
+### Authentication Configuration
+
+```yaml
+eksConfig:
+  amazonCredentialSecret: string      # Secret containing AWS credentials
+```
+
+**AWS Credential Secret Format:**
+The credential secret contains:
+- `amazonec2credentialConfig-accessKey`: AWS access key ID
+- `amazonec2credentialConfig-secretKey`: AWS secret access key
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:583-587`
+
+### Networking Configuration
+
+```yaml
+eksConfig:
+  subnets: []string                   # VPC subnet IDs
+  securityGroups: []string            # Security group IDs
+  serviceRole: string                 # IAM service role ARN
+  publicAccess: bool                  # Enable public API endpoint
+  privateAccess: bool                 # Enable private API endpoint
+  publicAccessSources: []string       # CIDR blocks for API access
+```
+
+**Network Auto-Generation:**
+If subnets are not provided, the EKS operator automatically creates:
+- VPC (Virtual Network)
+- Subnets across availability zones
+- Security groups
+- Internet gateway and route tables
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:230-252`
+
+### Node Group Configuration
+
+```yaml
+eksConfig:
+  nodeGroups:
+    - nodegroupName: string           # Node group name
+      desiredSize: int                # Desired number of nodes
+      minSize: int                    # Minimum nodes
+      maxSize: int                    # Maximum nodes
+      diskSize: int                   # EBS volume size (GB)
+      instanceType: string            # EC2 instance type
+      labels: {}                      # Kubernetes labels
+      tags: {}                        # AWS resource tags
+      ec2SshKey: string              # SSH key name
+      subnets: []string              # Subnet IDs for node group
+      version: string                # Kubernetes version
+      launchTemplate:                # Launch template configuration
+        name: string
+        id: string
+        version: int
+      requestSpotInstances: bool     # Use spot instances
+      spotInstanceTypes: []string    # Spot instance types
+```
+
+### Security Configuration
+
+```yaml
+eksConfig:
+  secretsEncryption: bool            # Enable secrets encryption
+  kmsKey: string                     # KMS key ARN for encryption
+  loggingTypes: []string             # CloudWatch logging types
+                                     # Options: api, audit, authenticator,
+                                     #          controllerManager, scheduler
+```
+
+### Advanced Features
+
+```yaml
+eksConfig:
+  tags: {}                           # Cluster resource tags
+  ebsCSIDriver: bool                 # Enable EBS CSI driver addon
+  ipFamily: string                   # IPv4 or IPv6
+```
+
+## EKS Operator Integration
+
+Rancher uses the EKS operator to manage cluster lifecycle through Custom Resource Definitions (CRDs).
+
+**Operator Template:** `system-library-rancher-eks-operator`
+
+**API Group:** `eks.cattle.io`
+
+**Resource:** `eksclusterconfigs`
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:47-50`
+
+### Lifecycle Management
+
+The EKS operator controller handles cluster state transitions:
+
+#### Creating Phase
+- Cluster resources are being provisioned in AWS
+- `ClusterConditionProvisioned` set to Unknown
+- Upstream spec is initialized
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:156-173`
+
+#### Active Phase
+- Cluster is provisioned and running
+- Service account token is generated
+- Network details are copied to cluster status
+- `ClusterConditionProvisioned` set to True
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:174-345`
+
+#### Updating Phase
+- Cluster configuration is being updated
+- `ClusterConditionUpdated` set to Unknown
+- Changes are synchronized to EKSClusterConfig CRD
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:346-358`
+
+### EKSClusterConfig Custom Resource
+
+When a cluster is created, Rancher automatically generates an `EKSClusterConfig` CRD:
+
+```yaml
+apiVersion: eks.cattle.io/v1
+kind: EKSClusterConfig
+metadata:
+  name: cluster-name
+  namespace: cattle-global-data
+spec:
+  # Mirrors cluster.spec.eksConfig
+```
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:475-504`
+
+## Cluster Status
+
+The EKS cluster status provides detailed information:
+
+```yaml
+status:
+  driver: EKS
+  eksStatus:
+    upstreamSpec:                     # Upstream EKS configuration
+    virtualNetwork: string            # VPC ID
+    subnets: []string                 # Subnet IDs
+    securityGroups: []string          # Security group IDs
+    privateRequiresTunnel: bool       # Tunnel requirement for private API
+    managedLaunchTemplateID: string   # Launch template ID
+    managedLaunchTemplateVersions: {} # Launch template versions per node group
+    generatedNodeRole: string         # Auto-generated node IAM role
+```
+
+Source: `pkg/apis/management.cattle.io/v3/cluster_types.go:411-420`
+
+## Authentication & API Access
+
+### AWS IAM Authenticator
+
+Rancher uses AWS IAM authenticator to generate bearer tokens for EKS API access:
+
+```go
+import "sigs.k8s.io/aws-iam-authenticator/pkg/token"
+
+// Generate token for EKS cluster authentication
+token, err := generator.GetWithOptions(&token.GetTokenOptions{
+    Session:   awsSession,
+    ClusterID: clusterName,
+})
+```
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:602-621`
+
+### REST Config
+
+The controller creates a Kubernetes REST config using:
+- EKS API endpoint
+- CA certificate (base64 decoded)
+- IAM authenticator bearer token
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:623-642`
+
+## Private Cluster Support
+
+For clusters with only private API endpoints (`publicAccess: false`), Rancher determines if tunneling is required.
+
+### Tunnel Detection
+
+Rancher attempts to connect to the private API endpoint directly:
+
+1. **DNS Resolution Fails**: Requires tunnel
+2. **Connection Timeout**: Requires tunnel  
+3. **Connection Succeeds**: Direct access possible
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:535-566`
+
+### Service Account Token Generation
+
+For private clusters:
+- If direct access: Token generated immediately
+- If tunnel required: Wait for cluster agent deployment
+- Token stored in secret: `cluster.Status.ServiceAccountTokenSecret`
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:262-283`
+
+## Node Group Requirements
+
+**Important:** EKS clusters must have at least one node to run the cluster agent.
+
+If no node groups exist:
+- `ClusterConditionWaiting` set to False
+- Message: "Cluster must have at least one managed nodegroup or one self-managed node."
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:202-221`
+
+## Provisioning Workflow
+
+1. **Create Cluster Object**: Define cluster with `spec.eksConfig`
+2. **Credential Validation**: Validate AWS credentials
+3. **CRD Creation**: EKSClusterConfig CRD is created
+4. **Resource Provisioning**: EKS operator provisions:
+   - EKS control plane
+   - VPC and networking (if not provided)
+   - Node groups
+   - Security groups
+5. **Status Synchronization**: Network details copied to cluster status
+6. **Service Account**: Generate and store service account token
+7. **Agent Deployment**: Rancher cluster agent deployed
+8. **Active State**: Cluster ready for workloads
+
+## Importing Existing Clusters
+
+To import an existing EKS cluster:
+
+```yaml
+spec:
+  eksConfig:
+    imported: true
+    amazonCredentialSecret: "cattle-global-data:cc-xxxxx"
+    displayName: "existing-cluster"
+    region: "us-west-2"
+```
+
+For imported clusters:
+- Rancher registers the cluster without modification
+- Node groups are discovered from AWS
+- `ClusterConditionPending` transitions from Unknown to True
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:185-193`
+
+## Launch Templates
+
+Rancher tracks managed launch templates for node groups:
+
+- **Managed Launch Template ID**: Shared template ID
+- **Template Versions**: Per-node-group version mapping
+
+These are automatically synced from the EKSClusterConfig status.
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:306-328`
+
+## Best Practices
+
+### Networking
+- Use private subnets for worker nodes
+- Enable both public and private API access during setup
+- Use `publicAccessSources` to restrict API access
+- Ensure subnet has sufficient IP addresses for pod networking
+
+### Security
+- Enable secrets encryption with KMS
+- Enable CloudWatch logging for audit trails
+- Use IAM roles for service accounts (IRSA)
+- Rotate AWS credentials regularly
+- Use private clusters when possible
+
+### Node Groups
+- Use managed node groups for simplified management
+- Enable autoscaling for dynamic workloads
+- Use multiple node groups for different instance types
+- Consider spot instances for cost optimization
+
+### High Availability
+- Deploy across multiple availability zones
+- Use subnets in different AZs
+- Configure appropriate node group sizes
+
+## Troubleshooting
+
+### 403 Access Denied
+
+Verify IAM permissions include:
+- `eks:*` permissions for EKS operations
+- `ec2:*` for networking resources
+- `iam:PassRole` for service roles
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:152-154`
+
+### Node Group Not Creating
+
+Check:
+- Node IAM role has required policies
+- Subnets have available IP addresses
+- Security groups allow required traffic
+- Launch template configuration is valid
+
+### Agent Not Deploying
+
+For private clusters:
+- Verify `privateRequiresTunnel` status
+- Check if import command was executed
+- Ensure at least one node group exists
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:289-295`
+
+### Update Failures
+
+If updates fail:
+- Check EKSClusterConfig status.failureMessage
+- Verify node group versions are compatible
+- Ensure Kubernetes version upgrades are incremental
+
+Source: `pkg/controllers/management/eks/eks_cluster_handler.go:354-358`
+
+## Related Resources
+
+- [Amazon EKS Documentation](https://docs.aws.amazon.com/eks/)
+- [EKS Best Practices Guide](https://aws.github.io/aws-eks-best-practices/)
+- [EKS Operator GitHub](https://github.com/rancher/eks-operator)
+- [AWS IAM Authenticator](https://github.com/kubernetes-sigs/aws-iam-authenticator)
+
+## API Reference
+
+### Cluster Type Definition
+
+Location: `pkg/apis/management.cattle.io/v3/cluster_types.go:162`
+
+```go
+type ClusterSpec struct {
+    EKSConfig *eksv1.EKSClusterConfigSpec `json:"eksConfig,omitempty"`
+    // ... other fields
+}
+```
+
+### Controller Registration
+
+Location: `pkg/controllers/management/eks/eks_cluster_handler.go:61-86`
+
+The EKS operator controller is registered to watch cluster changes and reconcile state with AWS EKS.

@@ -1,0 +1,339 @@
+---
+title: Backup and Restore
+description: Back up and restore etcd snapshots for Kubernetes clusters managed by Rancher
+---
+
+Rancher provides built-in support for backing up and restoring etcd data in RKE (Rancher Kubernetes Engine) clusters. Regular etcd backups ensure you can recover from data loss or cluster failures.
+
+## Overview
+
+The backup and restore operations:
+- Create snapshots of the etcd database
+- Store snapshots locally or in S3-compatible storage
+- Restore clusters from previous snapshots
+- Support both on-demand and scheduled backups
+
+<Warning>
+Backup and restore operations are only available for RKE and RKE2 clusters. Imported clusters and hosted Kubernetes services (EKS, GKE, AKS) must use their native backup solutions.
+</Warning>
+
+## Cluster Actions
+
+Rancher exposes two etcd backup actions (defined in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:33-34`):
+
+- `ClusterActionBackupEtcd` - Create an on-demand etcd backup
+- `ClusterActionRestoreFromEtcdBackup` - Restore from an existing backup
+
+These actions are available through:
+- The Rancher UI cluster management page
+- The Rancher API at `/v3/clusters/{clusterId}?action=backupEtcd`
+- The Rancher API at `/v3/clusters/{clusterId}?action=restoreFromEtcdBackup`
+
+## Creating Backups
+
+### On-Demand Backup
+
+Create an immediate etcd snapshot:
+
+<Steps>
+
+### Via Rancher UI
+
+1. Navigate to **Cluster Management**
+2. Select your RKE cluster
+3. Click the **⋮** menu
+4. Select **Take Snapshot**
+5. Optionally provide a snapshot name
+6. Click **Save**
+
+### Via Rancher API
+
+Trigger a backup using the API:
+
+```bash
+curl -X POST \
+  'https://{RANCHER_URL}/v3/clusters/{CLUSTER_ID}?action=backupEtcd' \
+  -H 'Authorization: Bearer {TOKEN}' \
+  -H 'Content-Type: application/json'
+```
+
+### Via kubectl
+
+Create an `EtcdBackup` resource:
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: EtcdBackup
+metadata:
+  name: manual-backup-{DATE}
+  namespace: {CLUSTER_NAME}
+spec:
+  clusterName: {CLUSTER_NAME}
+  filename: {BACKUP_NAME}
+```
+
+Apply with:
+```bash
+kubectl apply -f backup.yaml
+```
+
+</Steps>
+
+### Scheduled Backups
+
+Configure automatic backup schedules:
+
+1. Edit cluster configuration
+2. Navigate to **Advanced Options** → **etcd**
+3. Configure backup settings:
+   - **Backup Interval**: Hours between automatic backups
+   - **Retention**: Number of backups to retain
+   - **S3 Backup Target**: Optional remote storage
+4. Save the configuration
+
+Rancher automatically creates backups according to the schedule.
+
+## Backup Storage
+
+### Local Storage
+
+By default, backups are stored on etcd nodes at:
+```
+/opt/rke/etcd-snapshots/
+```
+
+Local backups:
+- Are stored on each etcd node
+- Persist across node reboots
+- Are not protected against node failures
+- Should be supplemented with remote backups
+
+### S3-Compatible Storage
+
+Configure S3 backup storage for redundancy:
+
+```yaml
+rancherKubernetesEngineConfig:
+  services:
+    etcd:
+      backup:
+        enabled: true
+        intervalHours: 12
+        retention: 6
+        s3BackupConfig:
+          bucketName: {BUCKET}
+          region: {REGION}
+          endpoint: {S3_ENDPOINT}
+          accessKey: {ACCESS_KEY}
+          secretKey: {SECRET_KEY}
+```
+
+S3 backups:
+- Provide off-cluster redundancy
+- Support any S3-compatible storage (AWS S3, MinIO, etc.)
+- Require credentials stored in cluster secrets
+- Enable backup restoration to new clusters
+
+## Backup Resource
+
+The `EtcdBackup` type is defined in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/rke_types.go:13`:
+
+```go
+type EtcdBackup struct {
+    metav1.TypeMeta
+    metav1.ObjectMeta
+    Spec   rketypes.EtcdBackupSpec     // Backup configuration
+    Status rketypes.EtcdBackupStatus   // Backup state
+}
+```
+
+Backup status includes:
+- Backup filename and location
+- Creation timestamp
+- Completion state
+- Error messages (if failed)
+
+### Listing Backups
+
+View available backups:
+
+```bash
+kubectl get etcdbackups -n {CLUSTER_NAME}
+```
+
+Example output:
+```
+NAME                        CLUSTERNAME   CREATED
+manual-backup-2024-01-15    c-xxxxx       2024-01-15T10:00:00Z
+auto-backup-2024-01-15      c-xxxxx       2024-01-15T14:00:00Z
+```
+
+## Restoring from Backup
+
+<Warning>
+Restoring from backup is a destructive operation that replaces all etcd data. All cluster state changes since the backup was created will be lost.
+</Warning>
+
+### Restore Prerequisites
+
+- A valid etcd backup
+- Cluster-admin access to Rancher
+- Understanding that current cluster state will be replaced
+- Confirmation from all stakeholders
+
+### Restore Procedure
+
+<Steps>
+
+### Via Rancher UI
+
+1. Navigate to **Cluster Management**
+2. Select the cluster to restore
+3. Click the **⋮** menu
+4. Select **Restore from Snapshot**
+5. Choose the backup to restore from
+6. Optionally provide RKE configuration to apply during restore
+7. Confirm the operation
+8. Click **Restore**
+
+### Via Rancher API
+
+The restore input type is defined in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:367`:
+
+```go
+type RestoreFromEtcdBackupInput struct {
+    EtcdBackupName   string  // Reference to EtcdBackup resource
+    RestoreRkeConfig string  // Optional RKE config to apply
+}
+```
+
+Trigger a restore:
+
+```bash
+curl -X POST \
+  'https://{RANCHER_URL}/v3/clusters/{CLUSTER_ID}?action=restoreFromEtcdBackup' \
+  -H 'Authorization: Bearer {TOKEN}' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "etcdBackupName": "{CLUSTER_NAME}:{BACKUP_NAME}",
+    "restoreRkeConfig": ""
+  }'
+```
+
+### Restore Process
+
+1. **Validation**: Rancher validates the backup exists and is accessible
+2. **Cluster Pause**: Cluster operations are paused during restore
+3. **Etcd Stop**: etcd processes are stopped on all nodes
+4. **Data Restore**: Backup data is restored to etcd nodes
+5. **Etcd Restart**: etcd is restarted with restored data
+6. **Cluster Sync**: Kubernetes API server reconnects to etcd
+7. **Validation**: Rancher verifies cluster health
+
+### Post-Restore Verification
+
+1. Wait for the cluster to return to Active state
+2. Verify critical workloads are running:
+   ```bash
+   kubectl get pods --all-namespaces
+   ```
+3. Check cluster events for errors:
+   ```bash
+   kubectl get events --sort-by='.lastTimestamp'
+   ```
+4. Validate application data integrity
+5. Restore any resources created after the backup
+
+</Steps>
+
+## Restore Configuration
+
+The `restoreRkeConfig` parameter allows applying RKE configuration changes during restore:
+
+- Update Kubernetes version
+- Modify cluster networking
+- Change service configurations
+- Update node pool settings
+
+Leave empty to restore without configuration changes.
+
+## Backup Best Practices
+
+### Frequency
+
+- **Production clusters**: Every 6-12 hours
+- **Development clusters**: Every 24 hours
+- **Critical clusters**: Every 1-6 hours + before major changes
+
+### Retention
+
+- Keep at least 7 days of backups
+- Retain backups before major upgrades indefinitely
+- Balance retention with storage costs
+
+### Storage
+
+- Always configure S3 backup storage for production
+- Test backup restoration regularly
+- Verify backups are being created successfully
+- Monitor backup storage capacity
+
+### Testing
+
+- Test restore procedures in non-production environments
+- Validate backup integrity periodically
+- Document restore procedures for your team
+- Practice restore operations before emergencies
+
+## Backup Scope
+
+Etcd backups include:
+- All Kubernetes resources (Pods, Services, ConfigMaps, etc.)
+- Cluster configuration and state
+- RBAC policies and bindings
+- Custom Resource Definitions (CRDs)
+- Secrets and sensitive data
+
+Backups do **not** include:
+- PersistentVolume data (requires separate backup)
+- Application-level data in databases
+- Container images
+- Logs and metrics data
+
+## Troubleshooting
+
+### Backup Fails to Create
+
+- **Insufficient disk space**: Check etcd node disk usage
+- **S3 credentials**: Verify S3 access key and secret are correct
+- **Network issues**: Ensure connectivity to S3 endpoint
+- **Permissions**: Verify etcd has write access to backup directory
+
+Check backup status:
+```bash
+kubectl describe etcdbackup {BACKUP_NAME} -n {CLUSTER_NAME}
+```
+
+### Restore Fails
+
+- **Backup corruption**: Verify backup file integrity
+- **Version mismatch**: Ensure backup is compatible with cluster version
+- **Insufficient resources**: Check node capacity during restore
+- **Network interruption**: Restore may fail if connection is lost
+
+View restore logs:
+```bash
+kubectl logs -n cattle-system -l app=cluster-agent
+```
+
+### Cluster Not Healthy After Restore
+
+- Wait 5-10 minutes for all components to stabilize
+- Check etcd pod status: `kubectl get pods -n kube-system | grep etcd`
+- Verify API server connectivity
+- Review cluster events for errors
+
+## Related Resources
+
+- [Certificate Rotation](/clusters/operations/certificate-rotation)
+- [Cluster API Reference](/api/resources/clusters)

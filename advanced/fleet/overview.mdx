@@ -1,0 +1,149 @@
+---
+title: Fleet Overview
+description: Learn about Fleet, Rancher's GitOps-based multi-cluster application deployment system
+---
+
+## Introduction
+
+Fleet is Rancher's built-in GitOps continuous delivery system designed for managing applications across multiple Kubernetes clusters. It provides a scalable, lightweight approach to deploying applications from Git repositories to large numbers of clusters.
+
+## What is Fleet?
+
+Fleet is a Kubernetes-native continuous delivery solution that:
+
+- **Deploys applications** from Git repositories to multiple clusters
+- **Scales** to manage thousands of clusters efficiently
+- **Provides GitOps workflows** for declarative application management
+- **Integrates natively** with Rancher's multi-cluster management
+
+## Key Features
+
+### Multi-Cluster Deployment
+
+Fleet enables you to deploy applications across multiple clusters simultaneously:
+
+- Deploy to specific clusters or cluster groups
+- Use label selectors to target clusters dynamically
+- Manage cluster-specific configurations and overlays
+- Track deployment status across all clusters from a single interface
+
+### GitOps-Based Workflow
+
+Fleet follows GitOps principles where Git is the single source of truth:
+
+- Applications are defined declaratively in Git repositories
+- Changes to Git trigger automatic deployments
+- Provides audit trail through Git history
+- Enables rollback capabilities through Git reverts
+
+### Fleet Architecture
+
+Fleet consists of several key components:
+
+#### Fleet Manager
+
+The Fleet manager runs in the Rancher management cluster and:
+
+- Monitors Git repositories for changes
+- Processes Fleet resources (GitRepos, Bundles, ClusterGroups)
+- Orchestrates deployments across downstream clusters
+- Aggregates deployment status from all clusters
+
+#### Fleet Agents
+
+Fleet agents run on each managed cluster and:
+
+- Receive deployment instructions from the Fleet manager
+- Apply Kubernetes resources to their local cluster
+- Report deployment status back to the manager
+- Handle cluster-specific customizations
+
+#### Fleet Namespaces
+
+Fleet uses specific namespaces for organization:
+
+- **cattle-fleet-system**: Fleet controller and management components (source:pkg/fleet/const.go:4)
+- **cattle-fleet-local-system**: Fleet components for the local cluster (source:pkg/fleet/const.go:5)
+- **cattle-fleet-clusters-system**: Cluster registration and management (source:pkg/fleet/const.go:6)
+- **fleet-default**: Default workspace for Fleet resources (source:pkg/fleet/const.go:12)
+- **fleet-local**: Local cluster workspace (source:pkg/fleet/const.go:13)
+
+## Feature Flag
+
+Fleet can be enabled or disabled through Rancher's feature flag system:
+
+```yaml
+Name: fleet
+Description: Install Fleet when starting Rancher
+Default: true
+Dynamic: false
+```
+
+Source: pkg/features/feature.go:47-52
+
+**Note**: This is a non-dynamic feature, meaning Rancher must be restarted if the Fleet feature flag is changed.
+
+## Fleet Workspaces
+
+Workspaces provide multi-tenancy and isolation for Fleet resources:
+
+- Each workspace has its own set of GitRepos, Bundles, and clusters
+- Workspaces map to Kubernetes namespaces
+- RBAC controls can be applied per workspace
+- Projects can be associated with specific Fleet workspaces
+
+## Use Cases
+
+### Centralized Application Management
+
+Manage applications across your entire fleet of clusters from a single management plane:
+
+- Deploy standard applications to all clusters
+- Manage cluster-specific configurations
+- Roll out updates systematically across clusters
+
+### Environment Promotion
+
+Implement progressive delivery across environments:
+
+- Deploy to dev clusters first for testing
+- Promote to staging and production environments
+- Use Git branches or tags for environment separation
+
+### Multi-Tenant Operations
+
+Support multiple teams with isolated workspaces:
+
+- Each team manages their own GitRepos and deployments
+- Workspaces provide resource isolation
+- RBAC ensures appropriate access controls
+
+## Getting Started
+
+To begin using Fleet:
+
+1. Ensure the Fleet feature flag is enabled (enabled by default)
+2. Create a GitRepo resource pointing to your application repository
+3. Define target clusters using labels or cluster groups
+4. Fleet automatically creates Bundles and deploys to matching clusters
+
+For detailed configuration and deployment strategies, see [Continuous Delivery with Fleet](./continuous-delivery.mdx).
+
+## Integration with Rancher
+
+Fleet is deeply integrated with Rancher:
+
+- Automatically installed when Fleet feature is enabled
+- Uses Rancher's cluster registry for multi-cluster operations
+- Integrates with Rancher RBAC for access control
+- Provides status visibility in Rancher UI
+- Shares cluster connectivity infrastructure
+
+The continuous-delivery feature flag (source:pkg/features/feature.go:53-58) controls GitOps-specific components within Fleet, allowing fine-grained control over Fleet capabilities.
+
+## Next Steps
+
+- Learn about [Continuous Delivery with Fleet](./continuous-delivery.mdx)
+- Explore Fleet bundle configurations
+- Set up GitOps workflows for your applications
+- Configure cluster targeting and deployment strategies

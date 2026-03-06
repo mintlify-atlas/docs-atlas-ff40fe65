@@ -1,0 +1,260 @@
+---
+title: Cluster Registration Tokens
+description: Manage cluster registration tokens for importing clusters into Rancher
+---
+
+Cluster registration tokens are used to authenticate and register clusters with Rancher. Each token provides the necessary credentials for a cluster agent to establish a secure connection.
+
+## Overview
+
+When you import a cluster, Rancher automatically creates a `ClusterRegistrationToken` resource. This token:
+- Contains unique authentication credentials
+- Provides access to the agent deployment manifest
+- Is scoped to a specific cluster
+- Generates platform-specific installation commands
+
+## Token Structure
+
+The `ClusterRegistrationToken` type is defined in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:283`:
+
+```go
+type ClusterRegistrationToken struct {
+    metav1.TypeMeta
+    metav1.ObjectMeta
+    Spec   ClusterRegistrationTokenSpec
+    Status ClusterRegistrationTokenStatus
+}
+
+type ClusterRegistrationTokenSpec struct {
+    ClusterName string  // Reference to the cluster
+}
+
+type ClusterRegistrationTokenStatus struct {
+    InsecureCommand            string  // Command for insecure/self-signed certs
+    Command                    string  // Standard secure command
+    WindowsNodeCommand         string  // Command for Windows nodes
+    InsecureWindowsNodeCommand string  // Insecure Windows command
+    NodeCommand                string  // Generic node command
+    InsecureNodeCommand        string  // Insecure node command
+    ManifestURL                string  // URL to download agent manifest
+    Token                      string  // Authentication token value
+}
+```
+
+## Token Generation
+
+Tokens are automatically created when:
+1. You create an imported cluster through the Rancher UI
+2. You create a cluster via the Rancher API
+3. You explicitly create a `ClusterRegistrationToken` resource
+
+Rancher generates:
+- A unique token value for authentication
+- Platform-specific installation commands
+- A manifest URL for downloading the agent configuration
+
+## Installation Commands
+
+### Linux/Unix Clusters
+
+**Secure command** (recommended):
+```bash
+curl --insecure -sfL https://{RANCHER_URL}/v3/import/{TOKEN}.yaml | kubectl apply -f -
+```
+
+**Insecure command** (for development/self-signed certificates):
+```bash
+curl -sfL https://{RANCHER_URL}/v3/import/{TOKEN}.yaml | kubectl apply -f -
+```
+
+The commands are available in:
+- `Status.Command` - Secure command
+- `Status.InsecureCommand` - Insecure command
+
+### Windows Nodes
+
+For clusters with Windows nodes, use the Windows-specific commands:
+
+- `Status.WindowsNodeCommand` - Secure Windows installation
+- `Status.InsecureWindowsNodeCommand` - Insecure Windows installation
+
+These commands use PowerShell to download and apply the Windows agent manifest.
+
+### Generic Node Commands
+
+Node-level commands for adding individual nodes:
+
+- `Status.NodeCommand` - Standard node registration
+- `Status.InsecureNodeCommand` - Insecure node registration
+
+## Manifest URL
+
+The `ManifestURL` provides direct access to the agent deployment YAML:
+
+```
+https://{RANCHER_URL}/v3/import/{TOKEN}.yaml
+```
+
+The manifest includes:
+- ServiceAccount and RBAC resources
+- Deployment for `cattle-cluster-agent`
+- ConfigMaps with cluster configuration
+- Secrets with authentication credentials
+
+The manifest is served by the cluster registration token handler at `/home/daytona/workspace/source/pkg/api/norman/customization/clusterregistrationtokens/import.go:23`.
+
+## Token Security
+
+<Warning>
+Cluster registration tokens provide cluster-admin level access. Treat them as sensitive credentials.
+</Warning>
+
+### Best Practices
+
+1. **Rotate tokens regularly**: Delete old tokens after cluster import
+2. **Limit token exposure**: Don't commit tokens to version control
+3. **Use secure commands**: Prefer secure commands with valid certificates
+4. **Monitor token usage**: Track which tokens are actively used
+5. **Revoke unused tokens**: Delete tokens for clusters that no longer exist
+
+### Token Scope
+
+Each token:
+- Is scoped to a single cluster (via `Spec.ClusterName`)
+- Cannot be used to register a different cluster
+- Remains valid indefinitely unless explicitly deleted
+- Provides full access to manage the cluster through Rancher
+
+## Managing Tokens
+
+### Listing Tokens
+
+View tokens for a cluster:
+
+```bash
+kubectl get clusterregistrationtokens -n {CLUSTER_NAME}
+```
+
+### Creating Additional Tokens
+
+Create a new token for an existing cluster:
+
+```yaml
+apiVersion: management.cattle.io/v3
+kind: ClusterRegistrationToken
+metadata:
+  name: {TOKEN_NAME}
+  namespace: {CLUSTER_NAME}
+spec:
+  clusterName: {CLUSTER_NAME}
+```
+
+Apply with:
+```bash
+kubectl apply -f token.yaml
+```
+
+Rancher automatically populates the `Status` fields with generated commands and the token value.
+
+### Deleting Tokens
+
+Remove a token:
+
+```bash
+kubectl delete clusterregistrationtoken {TOKEN_NAME} -n {CLUSTER_NAME}
+```
+
+<Warning>
+Deleting all tokens for a cluster will break the agent connection. Ensure at least one valid token exists.
+</Warning>
+
+### Viewing Token Details
+
+Inspect a token's generated values:
+
+```bash
+kubectl get clusterregistrationtoken {TOKEN_NAME} -n {CLUSTER_NAME} -o yaml
+```
+
+The output includes all generated commands and the manifest URL.
+
+## Token Lifecycle
+
+<Steps>
+
+### Token Creation
+
+1. User creates an imported cluster
+2. Rancher creates a default `ClusterRegistrationToken`
+3. Token status is populated with commands and credentials
+
+### Token Usage
+
+1. User retrieves the token's installation command
+2. Command is executed against the target cluster
+3. Cluster agent downloads manifest using the token
+4. Agent authenticates to Rancher using token credentials
+
+### Token Rotation
+
+1. Create a new `ClusterRegistrationToken` for the cluster
+2. Update the agent deployment with the new token
+3. Delete the old token after verifying the new connection
+
+### Token Deletion
+
+1. Identify unused or compromised tokens
+2. Delete the token resource
+3. Verify the cluster agent continues functioning (if other tokens exist)
+
+</Steps>
+
+## Agent Registration Flow
+
+When applying the registration command:
+
+1. **Manifest Download**: kubectl retrieves the YAML from the manifest URL
+2. **Resource Creation**: Kubernetes creates the agent resources
+3. **Agent Startup**: The cattle-cluster-agent pod starts
+4. **Authentication**: Agent uses the token to authenticate with Rancher
+5. **Connection**: Agent establishes a websocket connection
+6. **Synchronization**: Rancher syncs cluster state and marks it as Active
+
+The import handler is implemented in `/home/daytona/workspace/source/pkg/api/norman/customization/clusterregistrationtokens/import.go`.
+
+## Server URL Configuration
+
+The token commands use the Rancher server URL from:
+
+1. `settings.ServerURL.Get()` - User-configured server URL
+2. HTTP request Host header (fallback)
+
+Ensure the server URL is:
+- Accessible from target clusters
+- Configured with the correct protocol (http/https)
+- Resolvable via DNS from cluster networks
+
+## Troubleshooting
+
+### Token Commands Not Working
+
+- **Verify server URL**: Ensure clusters can reach the configured Rancher URL
+- **Check certificate validity**: Use insecure commands for self-signed certificates
+- **Inspect token status**: Ensure the token has been fully populated
+
+### Manifest Download Fails
+
+- **Network connectivity**: Verify cluster can reach Rancher server
+- **Token expiration**: Check if the token still exists
+- **URL accessibility**: Test the manifest URL manually with curl
+
+### Agent Fails to Connect
+
+- **Token authentication**: Verify the token value is correct
+- **Server URL mismatch**: Ensure agent is connecting to the correct Rancher instance
+- **Network policies**: Check for firewall rules blocking websocket connections
+
+## Related Resources
+
+- [Importing Existing Clusters](/clusters/importing/import-existing)
+- [Cluster API Reference](/api/resources/clusters)

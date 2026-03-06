@@ -1,0 +1,607 @@
+---
+title: SSL/TLS Configuration
+description: Configure SSL/TLS certificates for secure HTTPS access to Rancher
+---
+
+Rancher is designed to be secure by default and requires SSL/TLS configuration for production deployments. This guide covers the different certificate options and how to configure them.
+
+## Overview
+
+Rancher supports three primary methods for TLS certificate management:
+
+1. **Rancher-Generated Certificates** - Rancher generates a self-signed certificate
+2. **Let's Encrypt** - Automatically obtain and renew certificates from Let's Encrypt
+3. **Bring Your Own Certificate (BYO)** - Use your own certificate from a trusted CA
+
+All three methods require [cert-manager](https://cert-manager.io/) to be installed except when using your own certificate.
+
+**Source**: chart/README.md:58
+
+## Prerequisites
+
+Before configuring TLS, ensure you have:
+
+- A Kubernetes cluster (RKE1, RKE2, K3s, AKS, EKS, or GKE)
+- Helm 3 installed
+- kubectl configured to access your cluster
+- A fully qualified domain name (FQDN) for Rancher
+
+## Installation Methods
+
+### Option 1: Rancher-Generated TLS Certificate
+
+This option is the simplest but uses a self-signed certificate. Browsers will show security warnings.
+
+#### Step 1: Install cert-manager
+
+Cert-manager is required for Rancher to generate certificates.
+
+```bash
+# Add the Jetstack Helm repository
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+
+# Install cert-manager
+kubectl create namespace cert-manager
+
+helm install cert-manager jetstack/cert-manager \
+  --namespace cert-manager \
+  --set installCRDs=true
+```
+
+Verify cert-manager is running:
+
+```bash
+kubectl get pods --namespace cert-manager
+```
+
+**Source**: chart/README.md:68
+
+#### Step 2: Install Rancher
+
+Install Rancher with the default TLS source:
+
+```bash
+helm repo add rancher-latest https://releases.rancher.com/server-charts/latest
+helm repo update
+
+kubectl create namespace cattle-system
+
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com
+```
+
+**Helm Values**:
+- `ingress.tls.source=rancher` (default)
+- `ingress.tls.secretName=tls-rancher-ingress` (default)
+
+**Source**: chart/README.md:76, chart/values.yaml:104
+
+#### Understanding Rancher-Generated Certs
+
+When `ingress.tls.source=rancher`:
+
+1. Rancher creates a self-signed CA certificate
+2. The CA signs a certificate for your hostname
+3. The certificate is stored in the `tls-rancher-ingress` secret
+4. cert-manager automatically renews the certificate before expiration
+
+<Warning>
+Browsers will show security warnings because the certificate is self-signed. This option is not recommended for production.
+</Warning>
+
+### Option 2: Let's Encrypt
+
+Let's Encrypt provides free, automatically-renewing certificates trusted by all major browsers.
+
+#### Step 1: Install cert-manager
+
+Same as Option 1 above.
+
+#### Step 2: Install Rancher with Let's Encrypt
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set ingress.tls.source=letsEncrypt \
+  --set letsEncrypt.email=admin@example.com
+```
+
+**Helm Values**:
+- `ingress.tls.source=letsEncrypt`
+- `letsEncrypt.email=<your-email>` (required)
+- `letsEncrypt.environment=production` (default)
+- `letsEncrypt.ingress.class=` (optional)
+
+**Source**: chart/README.md:83, chart/values.yaml:144
+
+#### Let's Encrypt Environments
+
+**Production Environment** (default):
+```yaml
+letsEncrypt:
+  environment: production
+  email: admin@example.com
+```
+
+- Issues trusted certificates
+- Rate limited to 5 certificates per week per domain
+- Use for production deployments
+
+**Staging Environment**:
+```yaml
+letsEncrypt:
+  environment: staging
+  email: admin@example.com
+```
+
+- Issues test certificates (not trusted by browsers)
+- No rate limits
+- Use for testing configurations
+
+**Source**: chart/README.md:145, chart/values.yaml:149
+
+<Warning>
+The production environment only allows you to register a name 5 times a week. Use staging until you have your configuration correct.
+</Warning>
+
+#### DNS Requirements
+
+For Let's Encrypt to work:
+
+1. Your domain must be publicly accessible
+2. DNS must point to your Rancher load balancer
+3. Port 80 must be accessible for HTTP-01 challenge
+
+#### Ingress Class for Let's Encrypt
+
+If you need to specify an ingress class for the ACME solver:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set ingress.tls.source=letsEncrypt \
+  --set letsEncrypt.email=admin@example.com \
+  --set letsEncrypt.ingress.class=nginx
+```
+
+**Source**: chart/values.yaml:150
+
+### Option 3: Bring Your Own Certificate
+
+Use a certificate from your organization's CA or a commercial certificate provider.
+
+#### Step 1: Create TLS Secret
+
+Create a Kubernetes secret containing your certificate and private key:
+
+```bash
+kubectl create namespace cattle-system
+
+kubectl -n cattle-system create secret tls tls-rancher-ingress \
+  --cert=tls.crt \
+  --key=tls.key
+```
+
+**Requirements**:
+- Certificate must be PEM-encoded
+- Certificate must be valid for your hostname
+- Private key must be PEM-encoded
+- Private key must not be password-protected
+
+**Source**: chart/README.md:93
+
+#### Step 2: Install Rancher
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set ingress.tls.source=secret
+```
+
+**Helm Values**:
+- `ingress.tls.source=secret`
+- `ingress.tls.secretName=tls-rancher-ingress` (default, or specify custom name)
+
+**Source**: chart/README.md:95, chart/values.yaml:103
+
+#### Custom Secret Name
+
+If your secret has a different name:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set ingress.tls.source=secret \
+  --set ingress.tls.secretName=my-custom-cert
+```
+
+#### Private CA Certificates
+
+If your certificate is signed by a private CA, add the `privateCA` flag:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set ingress.tls.source=secret \
+  --set privateCA=true
+```
+
+**Then create a secret with your CA certificate**:
+
+```bash
+kubectl -n cattle-system create secret generic tls-ca \
+  --from-file=cacerts.pem=./ca.crt
+```
+
+**Source**: chart/README.md:102, chart/values.yaml:155
+
+#### Certificate Chain
+
+If you need to include intermediate certificates, concatenate them in order:
+
+```bash
+cat server.crt intermediate.crt root.crt > tls.crt
+
+kubectl -n cattle-system create secret tls tls-rancher-ingress \
+  --cert=tls.crt \
+  --key=tls.key
+```
+
+Order: Server cert → Intermediate cert(s) → Root cert
+
+## Additional Trusted CAs
+
+If you need Rancher to trust additional CAs (for example, to connect to external systems):
+
+### Step 1: Enable Additional Trusted CAs
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set additionalTrustedCAs=true
+```
+
+**Source**: chart/values.yaml:1, chart/README.md:166
+
+### Step 2: Create CA Secret
+
+```bash
+kubectl -n cattle-system create secret generic tls-ca-additional \
+  --from-file=ca-additional.pem=./additional-ca.crt
+```
+
+The secret must be named `tls-ca-additional` and must be in the `cattle-system` namespace.
+
+## Ingress Configuration
+
+Rancher uses Kubernetes Ingress for TLS termination. The Helm chart creates an Ingress resource automatically.
+
+### Ingress TLS Source
+
+The `ingress.tls.source` value determines where certificates come from:
+
+| Value | Description |
+|-------|-------------|
+| `rancher` | Rancher generates a self-signed certificate |
+| `letsEncrypt` | cert-manager obtains a Let's Encrypt certificate |
+| `secret` | Use a certificate from a Kubernetes secret |
+
+**Source**: chart/README.md:157, chart/values.yaml:103
+
+### Ingress Class
+
+Specify an ingress class if needed:
+
+```yaml
+ingress:
+  ingressClassName: nginx
+```
+
+**Default**: Uses cluster default ingress class
+
+**Source**: chart/values.yaml:91
+
+### Ingress Annotations
+
+Add custom annotations for your ingress controller:
+
+```yaml
+ingress:
+  extraAnnotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+```
+
+**Source**: chart/values.yaml:86
+
+<Note>
+As of March 2026, ingress-nginx has been retired. Consider migrating to another ingress controller or using Gateway API.
+</Note>
+
+**Source**: chart/values.yaml:84
+
+### Service Port
+
+By default, the ingress connects to Rancher on port 80:
+
+```yaml
+ingress:
+  servicePort: 80
+```
+
+If you disable HTTP on the service, use port 443:
+
+```yaml
+service:
+  disableHTTP: true
+
+ingress:
+  servicePort: 443
+```
+
+**Source**: chart/values.yaml:97, chart/values.yaml:142
+
+## Gateway API Configuration
+
+As an alternative to Ingress, Rancher supports the Gateway API (available when `networkExposure.type=gateway`).
+
+### Gateway TLS Configuration
+
+```yaml
+networkExposure:
+  type: gateway
+
+gateway:
+  gatewayClass:
+    name: traefik
+    ports:
+      http: 8000
+      https: 8443
+    tls:
+      source: rancher  # or letsEncrypt, or secret
+      secretName: tls-rancher-ingress
+```
+
+**Source**: chart/values.yaml:108
+
+### Gateway Certificate Options
+
+Same three options as Ingress:
+
+1. **Rancher-generated**: `gateway.gatewayClass.tls.source=rancher`
+2. **Let's Encrypt**: `gateway.gatewayClass.tls.source=letsEncrypt`
+3. **BYO**: `gateway.gatewayClass.tls.source=secret`
+
+**Source**: chart/values.yaml:131
+
+## External TLS Termination
+
+If you terminate TLS at an external load balancer (not recommended):
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set tls=external
+```
+
+**Helm Values**:
+- `tls=external`
+
+**Source**: chart/values.yaml:202, chart/README.md:200
+
+<Warning>
+External TLS termination requires additional configuration to ensure Rancher functions correctly. This is an advanced setup.
+</Warning>
+
+## TLS Version Control
+
+Control the minimum TLS version using environment variables:
+
+```yaml
+extraEnv:
+  - name: CATTLE_TLS_MIN_VERSION
+    value: "1.2"
+```
+
+**Options**:
+- `1.0` - TLS 1.0 (not recommended)
+- `1.1` - TLS 1.1 (not recommended)
+- `1.2` - TLS 1.2 (recommended minimum)
+- `1.3` - TLS 1.3 (recommended)
+
+**Source**: chart/values.yaml:61
+
+## Agent TLS Mode
+
+Control how Rancher agents validate TLS connections:
+
+```yaml
+agentTLSMode: strict
+```
+
+**Options**:
+- `strict` - Agents validate certificates (recommended)
+- `system-store` - Use system certificate store
+
+**Default**: 
+- `strict` for new installations on Rancher 2.9+
+- `system-store` for Rancher 2.8 or older
+
+**Source**: chart/values.yaml:54
+
+## Troubleshooting
+
+### Certificate Not Trusted
+
+**Problem**: Browser shows "Your connection is not private"
+
+**Solutions**:
+
+1. **For Rancher-generated certs**: This is expected. Either:
+   - Accept the security warning (not recommended for production)
+   - Switch to Let's Encrypt or BYO certificates
+
+2. **For Let's Encrypt**: Ensure:
+   - DNS points to your Rancher instance
+   - Port 80 is accessible for HTTP-01 challenge
+   - Email address is valid
+   - Not hitting rate limits (use staging first)
+
+3. **For BYO certs**: Verify:
+   - Certificate is for the correct hostname
+   - Certificate is not expired
+   - Certificate chain includes intermediates
+   - If using private CA, `privateCA=true` is set
+
+### cert-manager Issues
+
+Check cert-manager status:
+
+```bash
+# Check cert-manager pods
+kubectl get pods -n cert-manager
+
+# Check certificate requests
+kubectl get certificaterequest -n cattle-system
+
+# Check certificates
+kubectl get certificate -n cattle-system
+
+# View certificate details
+kubectl describe certificate rancher -n cattle-system
+```
+
+### Let's Encrypt Rate Limiting
+
+If you hit Let's Encrypt rate limits:
+
+1. Wait for the rate limit to reset (1 week)
+2. Use the staging environment to test:
+   ```bash
+   helm upgrade rancher rancher-latest/rancher \
+     --reuse-values \
+     --set letsEncrypt.environment=staging
+   ```
+3. Once working, switch back to production:
+   ```bash
+   helm upgrade rancher rancher-latest/rancher \
+     --reuse-values \
+     --set letsEncrypt.environment=production
+   ```
+
+### Secret Not Found
+
+If using BYO certificates:
+
+```bash
+# Verify secret exists
+kubectl get secret tls-rancher-ingress -n cattle-system
+
+# Check secret contents
+kubectl get secret tls-rancher-ingress -n cattle-system -o yaml
+
+# Verify certificate
+kubectl get secret tls-rancher-ingress -n cattle-system -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text -noout
+```
+
+### Ingress Not Working
+
+Verify ingress configuration:
+
+```bash
+# Check ingress
+kubectl get ingress -n cattle-system
+
+# Describe ingress
+kubectl describe ingress rancher -n cattle-system
+
+# Check ingress controller logs
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
+```
+
+## Best Practices
+
+1. **Production Deployments**
+   - Use Let's Encrypt or certificates from a trusted CA
+   - Never use self-signed certificates in production
+   - Set `agentTLSMode: strict` for better security
+   - Use TLS 1.2 or higher as minimum version
+
+2. **Certificate Management**
+   - Monitor certificate expiration dates
+   - Set up alerts for expiring certificates
+   - Test certificate renewal in staging first
+   - Keep private keys secure and never commit them to git
+
+3. **Let's Encrypt**
+   - Always test with staging environment first
+   - Ensure DNS is configured before installation
+   - Use a valid email address for renewal notifications
+   - Monitor rate limits
+
+4. **Private CA**
+   - Properly configure `privateCA=true`
+   - Distribute CA certificate to all users
+   - Document CA trust requirements
+   - Set appropriate certificate validity periods
+
+5. **cert-manager**
+   - Keep cert-manager up to date
+   - Monitor cert-manager logs
+   - Test certificate renewal before expiration
+   - Configure appropriate resource limits
+
+## Verify Installation
+
+After configuring TLS, verify Rancher is accessible:
+
+```bash
+# Check deployment status
+kubectl -n cattle-system rollout status deploy/rancher
+
+# Expected output:
+# deployment "rancher" successfully rolled out
+```
+
+Access Rancher in a web browser:
+
+```
+https://rancher.example.com
+```
+
+**Source**: chart/README.md:113
+
+## Upgrading Certificates
+
+When upgrading Rancher, remember to specify the same certificate options:
+
+```bash
+# Save your original install command options!
+helm upgrade rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.example.com \
+  --set ingress.tls.source=letsEncrypt \
+  --set letsEncrypt.email=admin@example.com
+```
+
+**Source**: chart/README.md:134
+
+<Warning>
+Always save your Helm install options. You'll need them for upgrades.
+</Warning>
+
+## Next Steps
+
+- [Server Configuration](/configuration/server-configuration) - Configure Rancher server options
+- [Audit Logging](/configuration/audit-logging) - Enable audit logging
+- [Security Best Practices](/architecture/security) - Secure your deployment
+- [High Availability Setup](/configuration/high-availability) - Configure HA Rancher

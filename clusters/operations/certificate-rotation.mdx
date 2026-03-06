@@ -1,0 +1,324 @@
+---
+title: Certificate Rotation
+description: Rotate certificates for Kubernetes cluster components in RKE2 and K3s clusters
+---
+
+Certificate rotation allows you to renew TLS certificates for Kubernetes cluster components before they expire. Rancher automates certificate rotation for RKE2 and K3s clusters managed through the CAPI (Cluster API) provisioning system.
+
+## Overview
+
+Kubernetes clusters use TLS certificates for:
+- API server authentication
+- etcd cluster communication
+- kubelet authentication
+- Service account token signing
+- Controller manager and scheduler secure connections
+
+These certificates have expiration dates and must be rotated periodically to maintain cluster security and operation.
+
+## Supported Clusters
+
+Certificate rotation is available for:
+- **RKE2 clusters** (ClusterDriverRke2)
+- **K3s clusters** (ClusterDriverK3s)
+- Clusters managed through CAPI RKEControlPlane
+
+<Warning>
+Certificate rotation is **not** available for:
+- Imported clusters
+- Hosted Kubernetes services (EKS, GKE, AKS)
+- Legacy RKE clusters (deprecated)
+
+These cluster types must use their native certificate management tools.
+</Warning>
+
+## Cluster Action
+
+The certificate rotation action is defined in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:35`:
+
+```go
+ClusterActionRotateCertificates = "rotateCertificates"
+```
+
+This action triggers the certificate rotation workflow through the CAPI planner.
+
+## Certificate Rotation Input
+
+The rotation input type (defined in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:372`):
+
+```go
+type RotateCertificateInput struct {
+    CACertificates bool      // Rotate the root CA certificates
+    Services       []string  // Specific services to rotate, or empty for all
+}
+```
+
+### Service Options
+
+Valid service names for selective rotation:
+- `etcd` - etcd peer and client certificates
+- `kubelet` - kubelet serving and client certificates  
+- `kube-apiserver` - API server serving certificate
+- `kube-proxy` - kube-proxy client certificate
+- `kube-scheduler` - scheduler client certificate
+- `kube-controller-manager` - controller manager client certificate
+- `rke2-server` / `k3s-server` - Server component certificates
+- `rke2-controller` / `k3s-controller` - Controller certificates
+- `admin` - Admin client certificate
+- `cloud-controller` - Cloud controller client certificate
+- `auth-proxy` - Authentication proxy certificate
+
+If `Services` is empty, **all** certificates are rotated.
+
+## Performing Certificate Rotation
+
+### Via Rancher UI
+
+<Steps>
+
+### Navigate to Cluster
+
+1. Go to **Cluster Management**
+2. Select your RKE2 or K3s cluster
+3. Click the **⋮** menu
+4. Select **Rotate Certificates**
+
+### Configure Rotation
+
+1. **Rotate CA Certificates**: Check to rotate root CA certificates (requires full cluster restart)
+2. **Services**: Leave empty to rotate all certificates, or select specific services
+3. Review the warning about cluster disruption
+4. Click **Rotate**
+
+### Monitor Progress
+
+1. Watch the cluster status during rotation
+2. Nodes are rotated sequentially to minimize disruption
+3. Wait for the cluster to return to **Active** state
+4. Verify all nodes are **Ready**
+
+</Steps>
+
+### Via Rancher API
+
+Trigger rotation via API:
+
+```bash
+curl -X POST \
+  'https://{RANCHER_URL}/v3/clusters/{CLUSTER_ID}?action=rotateCertificates' \
+  -H 'Authorization: Bearer {TOKEN}' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "caCertificates": false,
+    "services": ["kube-apiserver", "kubelet"]
+  }'
+```
+
+Rotate all certificates:
+```bash
+curl -X POST \
+  'https://{RANCHER_URL}/v3/clusters/{CLUSTER_ID}?action=rotateCertificates' \
+  -H 'Authorization: Bearer {TOKEN}' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "caCertificates": false,
+    "services": []
+  }'
+```
+
+## Rotation Process
+
+The rotation workflow is implemented in `/home/daytona/workspace/source/pkg/capr/planner/certificaterotation.go:17`.
+
+<Steps>
+
+### Pre-Rotation Validation
+
+1. **Cluster Ready Check**: Verify `ControlPlaneInitialized` is `true`
+2. **Generation Check**: Compare `Spec.RotateCertificates.Generation` vs `Status.CertificateRotationGeneration`
+3. **Init Node**: Locate the cluster's init node for coordination
+
+### Node Ordering
+
+Nodes are rotated in this order (defined in `/home/daytona/workspace/source/pkg/capr/planner/certificaterotation.go:63`):
+
+1. **Etcd-only nodes** - Nodes running only etcd
+2. **Etcd + control plane nodes** - Combined role nodes  
+3. **Control plane-only nodes** - API server, scheduler, controller manager
+4. **Worker nodes** - Application workload nodes
+
+This ordering ensures cluster availability throughout the rotation.
+
+### Per-Node Rotation
+
+For each node:
+
+1. **CAPI Cluster Pause**: Pause the CAPI cluster to prevent concurrent operations
+2. **Service Stop**: Stop the K3s/RKE2 service
+3. **Certificate Rotation**: Execute `{runtime} certificate rotate -s {services}`
+4. **Certificate Cleanup**: Remove auto-generated certificates for controller-manager and scheduler
+5. **Manifest Removal**: Remove static pod manifests (RKE2 only)
+6. **Service Restart**: Restart the K3s/RKE2 service
+7. **Health Check**: Wait for node to become ready
+8. **Next Node**: Proceed to the next node
+
+### Post-Rotation
+
+1. **CAPI Cluster Unpause**: Resume CAPI cluster operations
+2. **Status Update**: Set `Status.CertificateRotationGeneration = Spec.RotateCertificates.Generation`
+3. **Completion**: Cluster returns to Active state
+
+</Steps>
+
+## Rotation Plans
+
+The planner generates node-specific rotation plans (from `/home/daytona/workspace/source/pkg/capr/planner/certificaterotation.go:90`):
+
+### Control Plane Node Plan
+
+```bash
+# Stop service
+systemctl stop rke2-server
+
+# Rotate certificates
+rke2 certificate rotate -s kube-apiserver -s etcd
+
+# Remove auto-generated certs
+rm -f /var/lib/rancher/rke2/server/tls/kube-controller-manager.crt
+rm -f /var/lib/rancher/rke2/server/tls/kube-controller-manager.key
+rm -f /var/lib/rancher/rke2/server/tls/kube-scheduler.crt  
+rm -f /var/lib/rancher/rke2/server/tls/kube-scheduler.key
+
+# Remove static manifests
+rm -f /var/lib/rancher/rke2/agent/pod-manifests/kube-controller-manager.yaml
+rm -f /var/lib/rancher/rke2/agent/pod-manifests/kube-scheduler.yaml
+
+# Restart service
+systemctl start rke2-server
+```
+
+### Worker Node Plan
+
+```bash
+# Restart with new certificates
+systemctl restart rke2-agent
+```
+
+Worker nodes only require a service restart to pick up rotated CA certificates.
+
+## Downtime Considerations
+
+### High Availability Clusters
+
+- **Control plane**: Rolling restart with no downtime if 3+ control plane nodes
+- **Workloads**: Continue running on worker nodes during control plane rotation
+- **API availability**: May experience brief interruptions during API server rotation
+
+### Single-Node Clusters
+
+- **API unavailable**: API server is unavailable during rotation
+- **Workload impact**: Workloads continue running but cannot be managed
+- **Duration**: Typically 2-5 minutes per node
+
+### Service-Specific Impact
+
+Rotating specific services reduces downtime:
+- **kubelet only**: Minimal impact, no control plane restart
+- **etcd only**: Brief etcd cluster interruption
+- **kube-apiserver only**: API unavailable during rotation
+
+## CA Certificate Rotation
+
+<Warning>
+Rotating CA certificates (`caCertificates: true`) requires a full cluster restart and causes significant downtime. Plan maintenance windows accordingly.
+</Warning>
+
+CA rotation:
+- Generates new root CA certificates
+- Re-issues all service certificates with the new CA
+- Requires all components to restart and trust the new CA
+- Takes longer than standard certificate rotation
+- Should be performed during scheduled maintenance
+
+## Certificate Expiration
+
+Rancher tracks certificate expiration in the cluster status:
+
+```go
+type ClusterStatus struct {
+    ...
+    CertificatesExpiration map[string]CertExpiration
+}
+
+type CertExpiration struct {
+    ExpirationDate string
+}
+```
+
+View certificate expiration:
+```bash
+kubectl get cluster {CLUSTER_NAME} -o jsonpath='{.status.certificatesExpiration}'
+```
+
+Plan rotation before certificates expire:
+- **30 days before expiration**: Schedule rotation
+- **7 days before expiration**: Perform rotation
+- **After expiration**: Cluster components will fail to authenticate
+
+## Troubleshooting
+
+### Rotation Fails to Start
+
+- **Cluster not initialized**: Verify `Status.ControlPlaneInitialized` is `true`
+- **No init node**: Cluster must have an identified init node
+- **Previous rotation in progress**: Wait for current rotation to complete
+
+Check rotation status:
+```bash
+kubectl get rkecontrolplane {CLUSTER_NAME} -n fleet-default -o yaml
+```
+
+### Node Fails Health Check
+
+- **Service failed to start**: Check systemd logs
+  ```bash
+  journalctl -u rke2-server -n 100
+  ```
+- **Certificate mismatch**: Old and new certificates may conflict
+- **etcd cluster issues**: Verify etcd cluster health
+
+### Cluster Stuck During Rotation
+
+- **CAPI cluster paused**: Verify CAPI cluster is paused during rotation
+- **Plan not applied**: Check node plan status in RKE2 control plane
+- **Network issues**: Ensure nodes can communicate during rotation
+
+Force rotation completion:
+```bash
+kubectl patch rkecontrolplane {CLUSTER_NAME} -n fleet-default --type=merge \
+  -p '{"spec":{"rotateCertificates":{"generation":0}}}'
+```
+
+### Kubeconfig Stops Working
+
+After rotation, kubeconfig files may need updating:
+
+1. Generate new kubeconfig: See [Kubeconfig Access](/clusters/operations/kubeconfig-access)
+2. Update local kubeconfig: `kubectl config use-context {CLUSTER_NAME}`
+3. Distribute new kubeconfig to users
+
+## Best Practices
+
+- **Regular rotation**: Rotate certificates every 6-12 months
+- **Before expiration**: Rotate at least 30 days before expiration
+- **Selective rotation**: Rotate specific services to minimize impact
+- **Maintenance windows**: Schedule CA rotation during planned downtime
+- **Testing**: Test rotation in non-production clusters first
+- **Monitoring**: Track certificate expiration dates
+- **Documentation**: Keep runbooks for rotation procedures
+
+## Related Resources
+
+- [Kubeconfig Access](/clusters/operations/kubeconfig-access)
+- [Backup and Restore](/clusters/operations/backup-restore)
+- [Cluster API Reference](/api/resources/clusters)

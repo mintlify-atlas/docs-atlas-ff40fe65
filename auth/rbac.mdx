@@ -1,0 +1,209 @@
+---
+title: RBAC Model
+description: Learn about Rancher's role-based access control (RBAC) model and how it extends Kubernetes RBAC
+---
+
+Rancher implements a comprehensive role-based access control (RBAC) system that extends Kubernetes RBAC to provide multi-tenancy and hierarchical authorization across clusters and projects.
+
+## Architecture Overview
+
+Rancher's RBAC system operates at three distinct levels:
+
+1. **Global Level** - Permissions that apply across the entire Rancher installation
+2. **Cluster Level** - Permissions scoped to a specific Kubernetes cluster
+3. **Project Level** - Permissions scoped to a project (group of namespaces)
+
+## Core Components
+
+### RoleTemplate
+
+RoleTemplates are the building blocks of Rancher's authorization system. They define a set of Kubernetes RBAC PolicyRules that can be applied at either the cluster or project level.
+
+**Key Fields:**
+- `displayName` - Human-readable name shown in the UI
+- `rules` - Array of Kubernetes PolicyRules
+- `context` - Either "cluster" or "project" to indicate scope
+- `builtin` - If true, the RoleTemplate is managed by Rancher and immutable
+- `external` - If true, rules are sourced from an existing ClusterRole
+- `roleTemplateNames` - List of other RoleTemplates to inherit from
+- `locked` - If true, new bindings cannot use this RoleTemplate
+- `clusterCreatorDefault` - Auto-assigned to cluster creators
+- `projectCreatorDefault` - Auto-assigned to project creators
+
+**Location in source:** `pkg/apis/management.cattle.io/v3/authz_types.go:301-372`
+
+### GlobalRole
+
+GlobalRoles define permissions that apply to the local cluster and can optionally grant permissions across all downstream clusters.
+
+**Key Fields:**
+- `rules` - PolicyRules applied to the local cluster only
+- `inheritedClusterRoles` - RoleTemplate names granted in every downstream cluster
+- `namespacedRules` - Rules active in specific namespaces of the local cluster
+- `inheritedFleetWorkspacePermissions` - Permissions granted in all Fleet workspaces
+- `newUserDefault` - If true, automatically bound to new users
+- `builtin` - Indicates Rancher-managed roles that are immutable
+
+**Location in source:** `pkg/apis/management.cattle.io/v3/authz_types.go:142-190`
+
+### Role Bindings
+
+Rancher uses three types of role bindings:
+
+#### GlobalRoleBinding
+
+Binds a subject (user or group) to a GlobalRole.
+
+**Fields:**
+- `userName` - User to bind (immutable)
+- `groupPrincipalName` - Group principal to bind (immutable)
+- `globalRoleName` - Target GlobalRole (immutable)
+
+**Location in source:** `pkg/apis/management.cattle.io/v3/authz_types.go:230-257`
+
+#### ClusterRoleTemplateBinding (CRTB)
+
+Binds a subject to a RoleTemplate within a specific cluster.
+
+**Fields:**
+- `userName` / `userPrincipalName` - User subject (immutable)
+- `groupName` / `groupPrincipalName` - Group subject (immutable)
+- `clusterName` - Target cluster (immutable)
+- `roleTemplateName` - RoleTemplate to apply (immutable)
+
+**Location in source:** `pkg/apis/management.cattle.io/v3/authz_types.go:428-465`
+
+#### ProjectRoleTemplateBinding (PRTB)
+
+Binds a subject to a RoleTemplate within a specific project.
+
+**Fields:**
+- `userName` / `userPrincipalName` - User subject (immutable)
+- `groupName` / `groupPrincipalName` - Group subject (immutable)
+- `projectName` - Target project (immutable)
+- `roleTemplateName` - RoleTemplate to apply (immutable)
+
+**Location in source:** `pkg/apis/management.cattle.io/v3/authz_types.go:378-412`
+
+## Role Hierarchy
+
+### Inheritance Model
+
+RoleTemplates support inheritance through the `roleTemplateNames` field. A RoleTemplate can reference other RoleTemplates, inheriting all their rules. This creates a directed graph of permissions.
+
+**Circular Dependency Protection:**
+- Soft limit: 100 recursive function calls (warning logged)
+- Hard limit: 500 recursive function calls (error returned)
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:812-826`
+
+### Built-in Role Examples
+
+From `pkg/data/management/role_data.go`, Rancher provides several built-in roles:
+
+**Cluster Roles:**
+- `cluster-admin` - Kubernetes default cluster admin
+- `cluster-owner` - Full cluster control with ownership verb
+- `cluster-member` - Read access to cluster resources, can create projects
+- `projects-create` - Can create new projects
+- `projects-view` - Can view all projects and their resources
+- `nodes-manage` - Manage nodes and node pools
+- `storage-manage` - Manage persistent volumes and storage classes
+
+**Project Roles:**
+- `admin` - Kubernetes default admin
+- `project-owner` - Full project control with ownership verb
+- `project-member` - Can manage workloads and resources
+- `read-only` - Read-only access to project resources
+- `edit` / `view` - Kubernetes default roles
+
+## Permission Model
+
+### Policy Rules
+
+All permissions ultimately resolve to Kubernetes RBAC PolicyRules:
+
+```go
+type PolicyRule struct {
+    APIGroups []string
+    Resources []string
+    ResourceNames []string
+    Verbs []string
+    NonResourceURLs []string
+}
+```
+
+### Special Verbs
+
+Rancher introduces custom verbs beyond standard Kubernetes RBAC:
+
+- `own` - Indicates ownership of a cluster or project resource
+- `updatepsa` - Allows updating Pod Security Admission settings
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:868-879`
+
+### Management Plane Resources
+
+Certain resources (projects, machines, role bindings, etc.) exist in the management plane but are scoped to clusters or projects. Rancher creates special Roles and RoleBindings in backing namespaces to authorize access.
+
+**Key resources requiring management plane authorization:**
+- `projects` - Project custom resources
+- `projectroletemplatebindings` - Project member bindings
+- `clusterroletemplatebindings` - Cluster member bindings
+- `machines` - Node machine resources
+- `clusterevents` - Cluster-scoped events
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:390-461`
+
+## Role Binding Lifecycle
+
+### Membership Bindings
+
+When a CRTB or PRTB is created, Rancher automatically creates "membership" bindings that grant the subject access to the cluster or project custom resource itself:
+
+1. **Cluster Membership** - Creates ClusterRoleBinding for cluster resource access
+2. **Project Membership** - Creates RoleBinding in project namespace for project resource access
+
+**Implementation:**
+- Cluster: `pkg/controllers/management/auth/manager.go:124-204`
+- Project: `pkg/controllers/management/auth/manager.go:206-285`
+
+### Binding Reconciliation
+
+When a CRTB/PRTB is deleted or modified, Rancher reconciles membership bindings:
+
+- If no other bindings reference the same role and subject, the binding is deleted
+- If other bindings exist, only the owner label is removed
+
+**Implementation:** `pkg/controllers/management/auth/manager.go:287-362`
+
+## Access Types
+
+The RBAC system defines three standard access levels:
+
+```go
+const (
+    OwnerAccess    = "owner"      // Full access (all verbs)
+    MemberAccess   = "member"     // Update, get, list, watch
+    ReadOnlyAccess = "read-only"  // Get, list, watch
+)
+```
+
+**Implementation:** `pkg/controllers/management/rbac/rbac.go:19-22`
+
+## Status Tracking
+
+Both GlobalRoleBindings and ClusterRoleTemplateBindings track their status separately for local and remote (downstream) clusters:
+
+- `observedGenerationLocal` - Generation observed by local controller
+- `observedGenerationRemote` - Generation observed by remote controller  
+- `summaryLocal` / `summaryRemote` - "Complete" or "Error"
+- `localConditions` / `remoteConditions` - Detailed status conditions
+
+This dual-controller design allows Rancher to manage permissions in both the local management cluster and downstream clusters independently.
+
+## Related Resources
+
+- [Global Roles](/auth/global-roles) - Global-level permissions
+- [Cluster Roles](/auth/cluster-roles) - Cluster-level permissions
+- [Project Roles](/auth/project-roles) - Project-level permissions

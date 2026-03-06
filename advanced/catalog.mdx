@@ -1,0 +1,302 @@
+---
+title: Catalog System
+description: Learn how Rancher's catalog system manages Helm chart repositories, applications, and custom catalogs
+---
+
+# Catalog System
+
+Rancher's catalog system (CatalogV2) provides a powerful framework for managing Helm chart repositories, deploying applications, and creating custom catalogs. Built on top of Kubernetes custom resources, it enables seamless integration with Helm repositories and OCI registries.
+
+## Overview
+
+The catalog system consists of several core components:
+
+- **ClusterRepo**: Custom resource representing a Helm chart repository
+- **Content Manager**: Handles retrieval and caching of chart information
+- **Repository Types**: Support for Git, HTTP, and OCI-based repositories
+- **Index Management**: Efficient caching and filtering of chart indexes
+
+## Repository Types
+
+### Git Repositories
+
+Git-based repositories allow you to host Helm charts in a Git repository. The system automatically clones and updates repositories:
+
+```go
+// Location: pkg/catalogv2/git/download.go
+// The system ensures repositories are up-to-date
+func Ensure(secret *corev1.Secret, namespace, name, gitURL, commit string, 
+    insecureSkipTLS bool, caBundle []byte) error
+```
+
+**Features:**
+- Automatic cloning and fetching
+- Branch and commit-based tracking
+- Support for private repositories with authentication
+- Bundled mode for air-gapped environments
+
+### HTTP/HTTPS Repositories
+
+Standard Helm HTTP repositories are fully supported:
+
+```yaml
+apiVersion: catalog.cattle.io/v1
+kind: ClusterRepo
+metadata:
+  name: my-charts
+spec:
+  url: https://charts.example.com
+  insecureSkipTLSverify: false
+```
+
+### OCI Registries
+
+Rancher supports OCI-compliant container registries for Helm charts:
+
+```yaml
+apiVersion: catalog.cattle.io/v1
+kind: ClusterRepo
+metadata:
+  name: oci-charts
+spec:
+  url: oci://registry.example.com/charts
+```
+
+## Chart Index Management
+
+The content manager provides efficient caching and filtering of chart indexes:
+
+### Index Caching
+
+Chart indexes are cached in ConfigMaps and retrieved through the `Manager` struct:
+
+```go
+// Location: pkg/catalogv2/content/content.go:93
+// The Index method retrieves and caches repository information
+func (c *Manager) Index(namespace, name, targetK8sVersion string, 
+    skipFilter bool) (*repo.IndexFile, error)
+```
+
+**Key features:**
+- Thread-safe index caching
+- Automatic cache invalidation based on resource version
+- Gzip compression for storage efficiency
+- Deep copying to prevent race conditions
+
+### Version Filtering
+
+The system automatically filters chart versions based on:
+
+- **Rancher version constraints**: `catalog.cattle.io/rancher-version` annotation
+- **Kubernetes version constraints**: `catalog.cattle.io/kube-version` annotation
+- **Helm kubeVersion**: Standard Helm `kubeVersion` field
+
+```go
+// Location: pkg/catalogv2/content/content.go:366
+// Filters releases based on version constraints
+func (c *Manager) filterReleases(index *repo.IndexFile, 
+    k8sVersion *semver.Version, skipFilter bool) *repo.IndexFile
+```
+
+## Application Deployment
+
+### Retrieving Charts
+
+The catalog system provides methods to retrieve chart information and content:
+
+```go
+// Get chart tarball
+func (c *Manager) Chart(namespace, name, chartName, version string, 
+    skipFilter bool) (io.ReadCloser, error)
+
+// Get chart metadata
+func (c *Manager) Info(namespace, name, chartName, version string) 
+    (*types.ChartInfo, error)
+
+// Get chart icon
+func (c *Manager) Icon(namespace, name, chartName, version string) 
+    (io.ReadCloser, string, error)
+```
+
+### Chart Installation
+
+Charts are deployed using Helm operations:
+
+**Location**: `pkg/catalogv2/helmop/operation.go`
+
+The system handles:
+- Chart installation and upgrades
+- Release management
+- Rollback operations
+- Status tracking
+
+## Custom Catalogs
+
+### Creating a Custom Repository
+
+1. **Prepare your Helm chart repository** with an `index.yaml` file
+
+2. **Create a ClusterRepo resource**:
+
+```yaml
+apiVersion: catalog.cattle.io/v1
+kind: ClusterRepo
+metadata:
+  name: my-custom-catalog
+spec:
+  url: https://my-charts.example.com
+  # Optional: Authentication
+  clientSecret:
+    name: my-repo-secret
+    namespace: cattle-system
+  # Optional: CA bundle for self-signed certificates
+  caBundle: <base64-encoded-ca-cert>
+  # Optional: Skip TLS verification (not recommended)
+  insecureSkipTLSverify: false
+```
+
+3. **Create authentication secret** (if needed):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-repo-secret
+  namespace: cattle-system
+type: Opaque
+data:
+  username: <base64-encoded-username>
+  password: <base64-encoded-password>
+```
+
+### Adding Version Constraints
+
+Add annotations to your chart's `Chart.yaml`:
+
+```yaml
+apiVersion: v2
+name: my-app
+version: 1.0.0
+annotations:
+  # Require Rancher 2.8.0 or higher
+  catalog.cattle.io/rancher-version: ">= 2.8.0"
+  # Require Kubernetes 1.26 or higher
+  catalog.cattle.io/kube-version: ">= 1.26.0"
+```
+
+## Air-Gapped Environments
+
+For air-gapped deployments, Rancher supports bundled catalogs:
+
+### Bundled Mode
+
+Set the system catalog to bundled mode:
+
+```yaml
+# Setting: system-catalog
+value: "bundled"
+```
+
+In bundled mode:
+- Charts are included in the Rancher installation
+- No external network access required
+- Git repositories use local copies
+- Icons fall back to UI defaults
+
+## Repository Configuration
+
+### Authentication Options
+
+**HTTP Basic Auth**:
+```yaml
+clientSecret:
+  name: repo-credentials
+  namespace: cattle-system
+```
+
+**SSH Keys** (for Git repositories):
+```yaml
+clientSecret:
+  name: git-ssh-key
+  namespace: cattle-system
+```
+
+### TLS Configuration
+
+**Custom CA Bundle**:
+```yaml
+caBundle: LS0tLS1CRUdJTi...
+```
+
+**Skip TLS Verification**:
+```yaml
+insecureSkipTLSverify: true
+```
+
+**Disable Same-Origin Check**:
+```yaml
+disableSameOriginCheck: true
+```
+
+## Catalog Refresh
+
+Repositories are automatically refreshed based on:
+- ConfigMap updates
+- Resource version changes
+- Manual refresh triggers
+
+The refresh interval can be configured through the `system-feature-chart-refresh-seconds` setting (default: 6 hours).
+
+## Troubleshooting
+
+### Common Issues
+
+**Charts not appearing**:
+- Check version constraints in chart annotations
+- Verify the `skip-helm-index-filtering` setting
+- Ensure the index ConfigMap is properly created
+
+**Authentication failures**:
+- Verify secret exists in the correct namespace
+- Check secret format (username/password for HTTP, SSH key for Git)
+- Ensure credentials have appropriate permissions
+
+**TLS errors**:
+- Add CA bundle for self-signed certificates
+- Verify certificate chain is complete
+- Check that hostnames match certificate SANs
+
+### Debugging
+
+Enable debug logging to troubleshoot catalog issues:
+
+```bash
+# Check ClusterRepo status
+kubectl get clusterrepo -A
+kubectl describe clusterrepo <name>
+
+# Check index ConfigMap
+kubectl get configmap -n cattle-system | grep -i index
+
+# View Rancher logs
+kubectl logs -n cattle-system deployment/rancher | grep -i catalog
+```
+
+## Related Resources
+
+- **Source Code**: `pkg/catalogv2/`
+- **Content Manager**: `pkg/catalogv2/content/content.go`
+- **Git Operations**: `pkg/catalogv2/git/`
+- **Helm Integration**: `pkg/catalogv2/helm/`
+- **OCI Support**: `pkg/catalogv2/oci/`
+
+## Best Practices
+
+1. **Use version constraints** to ensure compatibility
+2. **Enable TLS verification** for production repositories
+3. **Use secrets** for authentication credentials
+4. **Monitor ConfigMap size** for large repositories
+5. **Test charts** before adding to production catalogs
+6. **Document custom annotations** for your charts
+7. **Use semantic versioning** for chart versions
+8. **Implement CI/CD** for chart repository updates

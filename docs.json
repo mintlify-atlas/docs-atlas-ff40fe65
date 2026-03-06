@@ -1,122 +1,185 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Rancher",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#2454fc",
+    "light": "#040404",
+    "dark": "#8cacd8"
   },
-  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "https://media.brand.dev/f761132c-4af9-4bf5-8682-a929911fd666.svg",
+    "dark": "https://media.brand.dev/f761132c-4af9-4bf5-8682-a929911fd666.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/rancher/rancher"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rancher/rancher"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Overview",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Architecture",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
-            ]
-          },
-          {
-            "group": "Writing content",
-            "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "architecture/overview",
+              "architecture/components",
+              "architecture/security"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Cluster Management",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Provisioning",
             "pages": [
-              "api-reference/introduction"
+              "clusters/provisioning/overview",
+              "clusters/provisioning/rke2",
+              "clusters/provisioning/k3s",
+              "clusters/provisioning/hosted-kubernetes"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Importing Clusters",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "clusters/importing/import-existing",
+              "clusters/importing/registration-tokens"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "clusters/operations/backup-restore",
+              "clusters/operations/certificate-rotation",
+              "clusters/operations/kubeconfig-access"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Authentication & Authorization",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "auth/overview",
+              "auth/providers",
+              "auth/tokens"
+            ]
+          },
+          {
+            "group": "Authorization",
+            "pages": [
+              "auth/rbac",
+              "auth/global-roles",
+              "auth/cluster-roles",
+              "auth/project-roles"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Configuration",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "configuration/helm-installation",
+              "configuration/high-availability",
+              "configuration/single-node"
+            ]
+          },
+          {
+            "group": "Settings",
+            "pages": [
+              "configuration/server-configuration",
+              "configuration/feature-flags",
+              "configuration/audit-logging",
+              "configuration/ssl-tls"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "APIs",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "api/resources/clusters",
+              "api/resources/projects",
+              "api/resources/nodes",
+              "api/resources/workloads"
+            ]
+          },
+          {
+            "group": "Cloud Providers",
+            "pages": [
+              "api/cloud/aks",
+              "api/cloud/eks",
+              "api/cloud/gke"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Advanced",
+        "groups": [
+          {
+            "group": "Fleet & GitOps",
+            "pages": [
+              "advanced/fleet/overview",
+              "advanced/fleet/continuous-delivery"
+            ]
+          },
+          {
+            "group": "Monitoring & Telemetry",
+            "pages": [
+              "advanced/monitoring",
+              "advanced/telemetry"
+            ]
+          },
+          {
+            "group": "Extensions",
+            "pages": [
+              "advanced/catalog",
+              "advanced/ui-customization"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "advanced/development/building",
+              "advanced/development/contributing"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

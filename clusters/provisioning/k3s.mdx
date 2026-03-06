@@ -1,0 +1,495 @@
+---
+title: K3s Cluster Provisioning
+description: Deploy lightweight K3s Kubernetes clusters with Rancher
+---
+
+K3s is a lightweight, certified Kubernetes distribution designed for resource-constrained environments, IoT, edge computing, and development scenarios. Rancher can provision K3s clusters using the same provisioning framework as RKE2.
+
+## What is K3s?
+
+K3s is a fully compliant Kubernetes distribution with the following characteristics:
+
+- **Lightweight**: Single binary under 100 MB
+- **Simple**: Easy to install, manage, and upgrade
+- **Secure**: Reasonable defaults with secure-by-default configuration
+- **Low Resource**: Minimal CPU and memory requirements
+
+## K3s vs RKE2
+
+Both distributions use the same provisioning API (`provisioning.cattle.io/v1`), but differ in:
+
+| Feature | K3s | RKE2 |
+|---------|-----|------|
+| **Target Use Case** | Edge, IoT, Development | Production, Compliance |
+| **Binary Size** | ~70 MB | ~200 MB |
+| **Default CNI** | Flannel | Canal |
+| **Hardening** | Standard | CIS Hardened |
+| **FIPS 140-2** | No | Yes |
+| **Configuration Path** | `/etc/rancher/k3s/` | `/etc/rancher/rke2/` |
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:22-27`
+
+## Provisioning Architecture
+
+K3s provisioning uses the same CAPR (Cluster API Provider Rancher) controllers as RKE2:
+
+- **Machine Provision**: Create infrastructure nodes via node drivers
+- **Bootstrap Controller**: Install K3s via system agent
+- **RKE Planner**: Configure K3s on nodes
+- **Machine Node Lookup**: Associate machines with Kubernetes nodes
+
+Reference: `pkg/controllers/capr/controllers.go:38-61`
+
+## Configuration Options
+
+### Basic K3s Cluster
+
+```yaml
+apiVersion: provisioning.cattle.io/v1
+kind: Cluster
+metadata:
+  name: my-k3s-cluster
+  namespace: fleet-default
+spec:
+  kubernetesVersion: v1.28.5+k3s1
+  cloudCredentialSecretName: cattle-global-data:digitalocean-creds
+  rkeConfig:
+    machineGlobalConfig:
+      # K3s-specific configuration
+      disable:
+      - traefik  # Disable default ingress controller
+      disable-cloud-controller: false
+      kubelet-arg:
+      - "max-pods=110"
+    machinePools:
+    - name: controlplane
+      quantity: 1
+      etcdRole: true
+      controlPlaneRole: true
+      machineConfigRef:
+        kind: DigitaloceanConfig
+        name: k3s-control-plane
+    - name: workers
+      quantity: 2
+      workerRole: true
+      machineConfigRef:
+        kind: DigitaloceanConfig
+        name: k3s-workers
+```
+
+Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:11-99`
+
+### K3s-Specific Settings
+
+K3s configuration options in `machineGlobalConfig`:
+
+**Disable Built-in Components:**
+```yaml
+machineGlobalConfig:
+  disable:
+  - traefik      # Ingress controller
+  - servicelb    # Service load balancer
+  - local-storage # Local path provisioner
+  - metrics-server
+```
+
+**Server Arguments:**
+```yaml
+machineGlobalConfig:
+  cluster-cidr: "10.42.0.0/16"
+  service-cidr: "10.43.0.0/16"
+  cluster-dns: "10.43.0.10"
+  cluster-domain: "cluster.local"
+```
+
+**Agent Arguments:**
+```yaml
+machineGlobalConfig:
+  kubelet-arg:
+  - "max-pods=150"
+  - "eviction-hard=memory.available<500Mi"
+  kube-proxy-arg:
+  - "metrics-bind-address=0.0.0.0"
+```
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:22-27`
+
+## Use Cases
+
+### 1. Edge Computing
+
+K3s excels in edge deployments:
+
+- **Low Resource Footprint**: Run on small devices
+- **SQLite Backend**: No external database required
+- **ARM Support**: Native support for ARM64/ARM architectures
+
+**Example Edge Configuration:**
+```yaml
+rkeConfig:
+  machineGlobalConfig:
+    # Minimize resource usage
+    disable:
+    - traefik
+    - servicelb
+    # SQLite for single-node or small clusters
+    datastore-endpoint: ""
+```
+
+### 2. Development Environments
+
+Quick cluster provisioning for development:
+
+- **Fast Deployment**: Minimal components, quick startup
+- **Single Node**: All roles on one machine
+- **Easy Reset**: Simple to recreate
+
+**Example Dev Configuration:**
+```yaml
+spec:
+  kubernetesVersion: v1.28.5+k3s1
+  rkeConfig:
+    machinePools:
+    - name: dev-node
+      quantity: 1
+      etcdRole: true
+      controlPlaneRole: true
+      workerRole: true  # All roles on one node
+      machineConfigRef:
+        kind: Amazonec2Config
+        name: dev-machine
+```
+
+### 3. CI/CD Pipelines
+
+Ephemeral clusters for testing:
+
+- **Fast Provisioning**: Quick cluster creation/deletion
+- **Lightweight**: Minimal overhead for test workloads
+- **Reproducible**: Consistent environments
+
+### 4. IoT Deployments
+
+Kubernetes at the edge:
+
+- **Low Power**: Efficient on battery-powered devices
+- **Small Footprint**: Limited storage requirements
+- **Offline Operation**: Works without constant connectivity
+
+Reference: K3s is designed for these scenarios as indicated by its lightweight architecture
+
+## Step-by-Step Provisioning
+
+<Steps>
+  <Step title="Select Kubernetes Version">
+    Choose a K3s version (format: `v1.28.5+k3s1`):
+
+    - K3s versions are distinguished by the `+k3s` suffix
+    - Available versions shown in Rancher UI cluster creation
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:20-24`
+  </Step>
+
+  <Step title="Configure Machine Pools">
+    Define your node pools:
+
+    **Minimal Single-Node:**
+    ```yaml
+    machinePools:
+    - name: all-in-one
+      quantity: 1
+      etcdRole: true
+      controlPlaneRole: true
+      workerRole: true
+    ```
+
+    **Production HA Setup:**
+    ```yaml
+    machinePools:
+    - name: control-plane
+      quantity: 3
+      etcdRole: true
+      controlPlaneRole: true
+    - name: workers
+      quantity: 3
+      workerRole: true
+    ```
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:144-149`
+  </Step>
+
+  <Step title="Set K3s Configuration">
+    Configure K3s-specific options:
+
+    ```yaml
+    rkeConfig:
+      machineGlobalConfig:
+        # Disable default components
+        disable:
+        - traefik
+        
+        # Networking
+        cluster-cidr: "10.42.0.0/16"
+        service-cidr: "10.43.0.0/16"
+        
+        # Security
+        secrets-encryption: true
+        
+        # Performance
+        kube-apiserver-arg:
+        - "max-requests-inflight=400"
+    ```
+  </Step>
+
+  <Step title="Apply Cluster Configuration">
+    Create the cluster:
+
+    ```bash
+    kubectl apply -f k3s-cluster.yaml
+    ```
+
+    Or use Rancher UI: **Cluster Management** → **Create** → **Custom**
+  </Step>
+
+  <Step title="Monitor Deployment">
+    Track cluster status:
+
+    ```bash
+    kubectl get cluster my-k3s-cluster -n fleet-default
+    kubectl get machines -n fleet-default
+    ```
+
+    Wait for cluster status to become `Ready: true`
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:483-530`
+  </Step>
+</Steps>
+
+## Lightweight Deployment Strategies
+
+### Single-Node Cluster
+
+Minimal configuration for development or edge:
+
+```yaml
+rkeConfig:
+  machinePools:
+  - name: single-node
+    quantity: 1
+    etcdRole: true
+    controlPlaneRole: true
+    workerRole: true
+    machineConfigRef:
+      kind: Amazonec2Config
+      name: small-instance  # t3.small or equivalent
+```
+
+### External Database
+
+Use external database instead of embedded ETCD:
+
+```yaml
+rkeConfig:
+  machineGlobalConfig:
+    datastore-endpoint: "postgres://user:pass@hostname:5432/k3s"
+  machinePools:
+  - name: servers
+    quantity: 2
+    controlPlaneRole: true
+    workerRole: true
+    # No etcdRole needed with external datastore
+```
+
+### Agent-Only Nodes
+
+Scale with lightweight worker nodes:
+
+```yaml
+machinePools:
+- name: edge-workers
+  quantity: 10
+  workerRole: true  # Only worker role for minimal overhead
+  machineConfigRef:
+    kind: DigitaloceanConfig
+    name: small-droplet
+```
+
+Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:198-210`
+
+## Machine Configuration Examples
+
+### Low-Resource Configuration
+
+For edge or development:
+
+```yaml
+apiVersion: rke-machine-config.cattle.io/v1
+kind: Amazonec2Config
+metadata:
+  name: k3s-edge-config
+  namespace: fleet-default
+instanceType: t3.small
+region: us-west-2
+rootSize: "16"  # 16 GB disk
+ami: ""  # Use default
+sshUser: ubuntu
+```
+
+### Production Configuration
+
+For production workloads:
+
+```yaml
+apiVersion: rke-machine-config.cattle.io/v1
+kind: Amazonec2Config
+metadata:
+  name: k3s-production-config
+  namespace: fleet-default
+instanceType: t3.medium
+region: us-west-2
+rootSize: "50"
+ami: ""
+sshUser: ubuntu
+tags: "environment,production,cluster,k3s"
+```
+
+Reference: Machine configuration is processed by `pkg/controllers/capr/machineprovision/args.go:288-336`
+
+## Advanced Features
+
+### High Availability
+
+HA K3s with embedded ETCD:
+
+```yaml
+machinePools:
+- name: ha-servers
+  quantity: 3  # Odd number for ETCD quorum
+  etcdRole: true
+  controlPlaneRole: true
+  workerRole: true
+```
+
+### Custom CNI
+
+Replace default Flannel with Calico:
+
+```yaml
+machineGlobalConfig:
+  flannel-backend: "none"  # Disable Flannel
+  disable-network-policy: true
+chartValues:
+  rke2-calico:
+    installation:
+      calicoNetwork:
+        ipPools:
+        - cidr: 10.42.0.0/16
+```
+
+Reference: `pkg/apis/rke.cattle.io/v1/cluster_configuration_types.go:13-19`
+
+### Secrets Encryption
+
+Enable secrets encryption at rest:
+
+```yaml
+machineGlobalConfig:
+  secrets-encryption: true
+```
+
+## Performance Tuning
+
+### Resource Limits
+
+Optimize for small devices:
+
+```yaml
+machineGlobalConfig:
+  kube-apiserver-arg:
+  - "max-requests-inflight=200"
+  - "max-mutating-requests-inflight=100"
+  kubelet-arg:
+  - "max-pods=50"  # Reduce from default 110
+  - "eviction-hard=memory.available<100Mi"
+```
+
+### Disable Unused Features
+
+Reduce overhead:
+
+```yaml
+machineGlobalConfig:
+  disable:
+  - traefik
+  - servicelb
+  - metrics-server
+  disable-cloud-controller: true
+  disable-helm-controller: false  # Keep for Rancher management
+```
+
+## Troubleshooting
+
+### Check K3s Service Status
+
+On a cluster node:
+
+```bash
+# Server node
+systemctl status k3s
+journalctl -u k3s -f
+
+# Agent node
+systemctl status k3s-agent
+journalctl -u k3s-agent -f
+```
+
+### View Machine Logs
+
+```bash
+kubectl logs -n fleet-default <machine-name>-provision
+kubectl describe machine <machine-name> -n fleet-default
+```
+
+### Common Issues
+
+**Single Node Not Ready**: Ensure node has all three roles (etcd, controlPlane, worker)
+
+**Out of Memory**: Reduce max-pods or disable unused components
+
+**Slow Performance**: Check if sufficient CPU/memory allocated
+
+Reference: Machine provisioning troubleshooting at `pkg/controllers/capr/machineprovision/args.go:80-202`
+
+## Migration from RKE2
+
+To migrate from RKE2 to K3s:
+
+1. Export workloads from RKE2 cluster
+2. Create new K3s cluster with same Kubernetes version
+3. Update configuration paths (`/etc/rancher/k3s` instead of `/etc/rancher/rke2`)
+4. Redeploy workloads to K3s cluster
+5. Update DNS/load balancer to point to K3s cluster
+
+<Warning>
+Direct in-place migration from RKE2 to K3s is not supported. Plan for workload migration.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RKE2 Provisioning" icon="server" href="./rke2">
+    Production-ready alternative to K3s
+  </Card>
+  
+  <Card title="Machine Pools" icon="layer-group" href="../management/machine-pools">
+    Configure node groups
+  </Card>
+  
+  <Card title="Edge Computing" icon="microchip" href="../use-cases/edge">
+    Deploy K3s at the edge
+  </Card>
+  
+  <Card title="Cluster Upgrades" icon="arrow-up" href="../operations/upgrades">
+    Upgrade K3s versions
+  </Card>
+</CardGroup>

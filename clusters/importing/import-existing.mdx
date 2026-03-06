@@ -1,0 +1,194 @@
+---
+title: Importing Existing Clusters
+description: Import existing Kubernetes clusters into Rancher for centralized management
+---
+
+Rancher allows you to import existing Kubernetes clusters and manage them through the Rancher UI. Imported clusters maintain their existing configuration while gaining access to Rancher's management features.
+
+## Overview
+
+When you import a cluster, Rancher:
+- Deploys the cluster agent to establish communication
+- Creates a management relationship without modifying the cluster's core infrastructure
+- Enables centralized access control, monitoring, and workload management
+
+Imported clusters are identified with the driver type `imported` (defined as `ClusterDriverImported` in `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:76`).
+
+## Prerequisites
+
+- An existing Kubernetes cluster
+- `kubectl` access to the cluster with cluster-admin privileges
+- Network connectivity from the cluster to the Rancher server
+- The cluster's kubeconfig file
+
+## Import Process
+
+<Steps>
+
+### Create the Imported Cluster in Rancher
+
+1. Navigate to **Cluster Management**
+2. Click **Import Existing**
+3. Provide a **Cluster Name** and optional **Description**
+4. Configure cluster settings:
+   - **Kubernetes Version**: Detected automatically after import
+   - **Private Registry**: Set `ImportedConfig.PrivateRegistryURL` if using a private registry
+   - **Agent Environment Variables**: Configure custom environment variables if needed
+
+### Generate the Registration Command
+
+After creating the cluster, Rancher generates a registration token and provides kubectl commands to apply the agent manifest.
+
+The registration process:
+1. Rancher creates a `ClusterRegistrationToken` resource
+2. The token contains the manifest URL and authentication credentials
+3. The manifest URL is accessible at `/v3/import/{token}.yaml`
+
+See [Registration Tokens](/clusters/importing/registration-tokens) for details on token management.
+
+### Apply the Agent Manifest
+
+Rancher provides two commands based on your cluster's certificate configuration:
+
+**Secure command** (for clusters with valid CA certificates):
+```bash
+curl --insecure -sfL {RANCHER_URL}/v3/import/{TOKEN}.yaml | kubectl apply -f -
+```
+
+**Insecure command** (for development or self-signed certificates):
+```bash
+curl -sfL {RANCHER_URL}/v3/import/{TOKEN}.yaml | kubectl apply -f -
+```
+
+<Warning>
+The insecure command skips TLS verification. Only use this in development environments or when your Rancher server uses self-signed certificates.
+</Warning>
+
+The command:
+1. Downloads the agent deployment manifest from Rancher
+2. Applies the manifest to your cluster
+3. Deploys the `cattle-cluster-agent` in the `cattle-system` namespace
+
+### Verify the Import
+
+After applying the manifest:
+
+1. The cluster agent establishes a connection to Rancher
+2. Rancher detects the cluster's configuration and capabilities
+3. The cluster status changes to **Active** in the Rancher UI
+4. The `AgentDeployed` condition is set to `true` in the cluster status
+
+You can verify the agent deployment:
+
+```bash
+kubectl get pods -n cattle-system
+```
+
+Expected output:
+```
+NAME                                    READY   STATUS    RESTARTS   AGE
+cattle-cluster-agent-xxxxxxxxxx-xxxxx   1/1     Running   0          2m
+```
+
+</Steps>
+
+## Cluster Configuration
+
+Imported clusters use the `ImportedConfig` specification:
+
+```go
+type ImportedConfig struct {
+    KubeConfig         string  // Base64-encoded kubeconfig (password field)
+    PrivateRegistryURL string  // Private registry URL for pulling images
+}
+```
+
+Source: `/home/daytona/workspace/source/pkg/apis/management.cattle.io/v3/cluster_types.go:183`
+
+### Private Registry Support
+
+If your cluster requires a private registry for pulling Rancher agent images:
+
+1. Specify the `privateRegistryURL` during import
+2. Rancher configures the agent to use this registry
+3. Ensure the registry contains the required agent images
+
+The agent image is resolved using the cluster's private registry configuration when available.
+
+## Agent Components
+
+The import process deploys:
+
+- **cattle-cluster-agent**: Primary agent for cluster communication
+- **cattle-node-agent**: Node-level agent for node management (if applicable)
+
+These agents:
+- Establish secure websocket connections to Rancher
+- Synchronize cluster state and resources
+- Execute operations requested through the Rancher UI
+- Report cluster metrics and health status
+
+## Network Requirements
+
+- **Outbound**: The cluster must reach the Rancher server URL
+- **Ports**: HTTPS (443) or custom port if configured
+- **Proxy**: Configure HTTP_PROXY/HTTPS_PROXY in agent environment variables if needed
+
+## Cluster Capabilities
+
+After import, Rancher detects and reports cluster capabilities:
+
+- Load balancer support
+- Ingress controllers
+- Node port range
+- Storage classes
+- Taint support
+
+These capabilities determine which Rancher features are available for the cluster.
+
+## Post-Import Operations
+
+Once imported, you can:
+
+- [Generate kubeconfig files](/clusters/operations/kubeconfig-access) for kubectl access
+- [Rotate certificates](/clusters/operations/certificate-rotation) (for supported cluster types)
+- Configure backup schedules (for RKE clusters)
+- Deploy workloads through Rancher
+- Configure monitoring and alerting
+- Manage cluster members and RBAC
+
+## Limitations
+
+- Imported clusters cannot be upgraded through Rancher
+- Cluster infrastructure modifications must be performed outside Rancher
+- Some operations (like etcd backup) are only available for RKE clusters
+- Certificate rotation is limited to RKE2/K3s clusters
+
+## Troubleshooting
+
+### Agent Fails to Connect
+
+1. Verify network connectivity from the cluster to Rancher
+2. Check the agent logs:
+   ```bash
+   kubectl logs -n cattle-system -l app=cattle-cluster-agent
+   ```
+3. Verify the registration token hasn't expired
+4. Ensure the Rancher server URL is accessible from the cluster
+
+### Cluster Stuck in "Pending" State
+
+- The agent deployment may not have been applied
+- The agent may be failing to start (check pod status)
+- Network policies may be blocking agent communication
+
+### Certificate Errors
+
+- Use the insecure command if Rancher uses self-signed certificates
+- Configure custom CA certificates in the cluster if needed
+
+## Related Resources
+
+- [Registration Tokens](/clusters/importing/registration-tokens)
+- [Kubeconfig Access](/clusters/operations/kubeconfig-access)
+- [Cluster API Reference](/api/resources/clusters)

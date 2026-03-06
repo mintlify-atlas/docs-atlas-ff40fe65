@@ -1,0 +1,561 @@
+---
+title: Node API Resource
+description: Manage cluster nodes, node pools, and node drivers
+---
+
+Nodes are the compute infrastructure that runs your Kubernetes workloads. Rancher provides APIs to manage nodes, node pools, and node drivers across different cloud providers.
+
+## Node Resource
+
+From `pkg/apis/management.cattle.io/v3/machine_types.go:62`
+
+### Node Spec
+
+<ParamField path="displayName" type="string">
+  Human-readable name for the node
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional description of the node
+</ParamField>
+
+<ParamField path="etcd" type="boolean">
+  Whether this node runs etcd (immutable)
+</ParamField>
+
+<ParamField path="controlPlane" type="boolean">
+  Whether this node is a control plane node (immutable)
+</ParamField>
+
+<ParamField path="worker" type="boolean">
+  Whether this node is a worker node (immutable)
+</ParamField>
+
+<ParamField path="nodeTemplateName" type="string">
+  Reference to the node template used to provision this node
+</ParamField>
+
+<ParamField path="nodePoolName" type="string">
+  Reference to the node pool this node belongs to
+</ParamField>
+
+<ParamField path="requestedHostname" type="string">
+  Desired hostname for the node (immutable, required)
+</ParamField>
+
+<ParamField path="customConfig" type="CustomConfig">
+  Configuration for custom/imported nodes
+  
+  <ParamField path="address" type="string">
+    IP or FQDN for SSH communication
+  </ParamField>
+  
+  <ParamField path="internalAddress" type="string">
+    Internal address for component communication
+  </ParamField>
+  
+  <ParamField path="user" type="string">
+    SSH user for node access
+  </ParamField>
+  
+  <ParamField path="sshKey" type="string" password>
+    SSH private key for authentication
+  </ParamField>
+</ParamField>
+
+<ParamField path="desiredNodeTaints" type="array<Taint>">
+  Taints to apply to the node
+</ParamField>
+
+<ParamField path="desiredNodeUnschedulable" type="string">
+  Whether the node should be unschedulable
+</ParamField>
+
+<ParamField path="nodeDrainInput" type="NodeDrainInput">
+  Configuration for draining the node
+</ParamField>
+
+### Node Status
+
+<ResponseField name="conditions" type="array<NodeCondition>">
+  Current state conditions of the node
+</ResponseField>
+
+<ResponseField name="nodeName" type="string">
+  Name of the node in Kubernetes
+</ResponseField>
+
+<ResponseField name="requested" type="ResourceList">
+  Total resources requested on the node
+</ResponseField>
+
+<ResponseField name="limits" type="ResourceList">
+  Total resource limits on the node
+</ResponseField>
+
+<ResponseField name="internalNodeStatus" type="NodeStatus">
+  Kubernetes node status information
+</ResponseField>
+
+<ResponseField name="nodeAnnotations" type="map<string, string>">
+  Annotations applied to the node
+</ResponseField>
+
+<ResponseField name="nodeLabels" type="map<string, string>">
+  Labels applied to the node
+</ResponseField>
+
+## Node Conditions
+
+From `pkg/apis/management.cattle.io/v3/machine_types.go:131`
+
+<ResponseField name="Initialized" type="condition">
+  Node has been initialized
+</ResponseField>
+
+<ResponseField name="Provisioned" type="condition">
+  Node has been provisioned
+</ResponseField>
+
+<ResponseField name="Updated" type="condition">
+  Node configuration has been updated
+</ResponseField>
+
+<ResponseField name="Registered" type="condition">
+  Node is registered with Kubernetes
+</ResponseField>
+
+<ResponseField name="Ready" type="condition">
+  Node is ready to accept workloads
+</ResponseField>
+
+<ResponseField name="Drained" type="condition">
+  Node has been drained of workloads
+</ResponseField>
+
+## List Nodes
+
+Retrieve all nodes in a cluster:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes
+```
+
+### Filter Nodes
+
+Filter by labels:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  "https://rancher-server/v3/clusters/c-m-abc123/nodes?labelSelector=node-role.kubernetes.io/worker%3Dtrue"
+```
+
+## Get Node
+
+Retrieve a specific node:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes/m-abc123
+```
+
+### Response Example
+
+```json
+{
+  "id": "c-m-abc123:m-xyz789",
+  "type": "node",
+  "metadata": {
+    "name": "worker-1",
+    "namespace": "c-m-abc123"
+  },
+  "spec": {
+    "displayName": "Worker Node 1",
+    "requestedHostname": "worker-1",
+    "worker": true,
+    "nodePoolName": "np-worker"
+  },
+  "status": {
+    "conditions": [
+      {
+        "type": "Ready",
+        "status": "True"
+      }
+    ],
+    "nodeName": "worker-1",
+    "requested": {
+      "cpu": "2000m",
+      "memory": "4Gi"
+    },
+    "internalNodeStatus": {
+      "addresses": [
+        {
+          "type": "InternalIP",
+          "address": "10.0.1.5"
+        }
+      ],
+      "capacity": {
+        "cpu": "4",
+        "memory": "8Gi",
+        "pods": "110"
+      },
+      "allocatable": {
+        "cpu": "3800m",
+        "memory": "7.5Gi",
+        "pods": "110"
+      }
+    }
+  }
+}
+```
+
+## Update Node
+
+Update node configuration:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "displayName": "Worker Node 1 - Updated",
+    "desiredNodeTaints": [
+      {
+        "key": "dedicated",
+        "value": "gpu",
+        "effect": "NoSchedule"
+      }
+    ]
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes/m-xyz789
+```
+
+## Delete Node
+
+Delete a node from the cluster:
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes/m-xyz789
+```
+
+## Node Actions
+
+### Cordon Node
+
+Mark a node as unschedulable:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes/m-xyz789?action=cordon
+```
+
+### Uncordon Node
+
+Mark a node as schedulable:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes/m-xyz789?action=uncordon
+```
+
+### Drain Node
+
+Drain all pods from a node:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "force": false,
+    "deleteLocalData": false,
+    "gracePeriod": 30,
+    "ignoreDaemonSets": true,
+    "timeout": 300
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123/nodes/m-xyz789?action=drain
+```
+
+## Node Pools
+
+From `pkg/apis/management.cattle.io/v3/machine_types.go:165`
+
+Node pools define groups of nodes with identical configurations.
+
+### Node Pool Spec
+
+<ParamField path="displayName" type="string">
+  Human-readable name for the node pool
+</ParamField>
+
+<ParamField path="clusterName" type="string" required>
+  Name of the cluster (immutable, required)
+</ParamField>
+
+<ParamField path="hostnamePrefix" type="string" required>
+  Prefix for generated hostnames (required)
+</ParamField>
+
+<ParamField path="quantity" type="integer" default={1}>
+  Number of nodes in the pool (default: 1)
+</ParamField>
+
+<ParamField path="etcd" type="boolean">
+  Nodes run etcd
+</ParamField>
+
+<ParamField path="controlPlane" type="boolean">
+  Nodes are control plane nodes
+</ParamField>
+
+<ParamField path="worker" type="boolean">
+  Nodes are worker nodes
+</ParamField>
+
+<ParamField path="nodeTemplateName" type="string" required>
+  Reference to the node template (required)
+</ParamField>
+
+<ParamField path="nodeLabels" type="map<string, string>">
+  Labels to apply to all nodes
+</ParamField>
+
+<ParamField path="nodeAnnotations" type="map<string, string>">
+  Annotations to apply to all nodes
+</ParamField>
+
+<ParamField path="nodeTaints" type="array<Taint>">
+  Taints to apply to all nodes
+</ParamField>
+
+<ParamField path="drainBeforeDelete" type="boolean" default={false}>
+  Drain nodes before deletion
+</ParamField>
+
+<ParamField path="deleteNotReadyAfterSecs" type="duration">
+  Delete not-ready nodes after this duration (0 to disable)
+</ParamField>
+
+### Create Node Pool
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "nodePool",
+    "clusterName": "c-m-abc123",
+    "hostnamePrefix": "worker",
+    "quantity": 3,
+    "worker": true,
+    "nodeTemplateName": "nt-xyz789",
+    "nodeLabels": {
+      "environment": "production",
+      "workload-type": "general"
+    },
+    "drainBeforeDelete": true
+  }' \
+  https://rancher-server/v3/nodepools
+```
+
+### Scale Node Pool
+
+Update the quantity field:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quantity": 5
+  }' \
+  https://rancher-server/v3/nodepools/c-m-abc123:np-worker
+```
+
+## Node Templates
+
+From `pkg/apis/management.cattle.io/v3/machine_types.go:17`
+
+Node templates define the configuration for provisioning nodes from a cloud provider.
+
+### Node Template Spec
+
+<ParamField path="displayName" type="string">
+  Human-readable name for the template
+</ParamField>
+
+<ParamField path="description" type="string">
+  Description of the template
+</ParamField>
+
+<ParamField path="driver" type="string">
+  Node driver name (immutable)
+</ParamField>
+
+<ParamField path="cloudCredentialName" type="string">
+  Reference to cloud credentials
+</ParamField>
+
+<ParamField path="nodeTaints" type="array<Taint>">
+  Taints to apply to nodes created from this template
+</ParamField>
+
+### Create Node Template
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "nodeTemplate",
+    "name": "aws-worker-template",
+    "displayName": "AWS Worker Template",
+    "driver": "amazonec2",
+    "cloudCredentialName": "cc-aws-prod",
+    "amazonec2Config": {
+      "region": "us-west-2",
+      "instanceType": "t3.large",
+      "ami": "ami-0c55b159cbfafe1f0",
+      "sshUser": "ubuntu",
+      "volumeType": "gp3",
+      "rootSize": "50"
+    }
+  }' \
+  https://rancher-server/v3/nodetemplates
+```
+
+## Node Drivers
+
+From `pkg/apis/management.cattle.io/v3/machine_types.go:278`
+
+Node drivers enable Rancher to provision nodes on different cloud providers.
+
+### Node Driver Spec
+
+<ParamField path="displayName" type="string">
+  Public name shown in the UI (max 57 chars)
+</ParamField>
+
+<ParamField path="description" type="string">
+  Short explanation of the driver
+</ParamField>
+
+<ParamField path="url" type="string" required>
+  Location of the driver binary (required)
+</ParamField>
+
+<ParamField path="builtin" type="boolean">
+  Whether the driver is built into Rancher
+</ParamField>
+
+<ParamField path="active" type="boolean" required>
+  Whether the driver can provision clusters (required)
+</ParamField>
+
+<ParamField path="checksum" type="string">
+  Expected checksum of the driver binary (md5, sha1, sha256, sha512)
+</ParamField>
+
+### List Node Drivers
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/nodedrivers
+```
+
+### Activate Node Driver
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/nodedrivers/digitalocean?action=activate
+```
+
+### Deactivate Node Driver
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/nodedrivers/digitalocean?action=deactivate
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Node Pools for Scaling">
+    Manage groups of similar nodes with node pools rather than individual nodes:
+    - Easier scaling
+    - Consistent configuration
+    - Automated replacement
+  </Accordion>
+
+  <Accordion title="Label Nodes Appropriately">
+    Use labels to identify node characteristics:
+    - `node-role.kubernetes.io/worker=true`
+    - `workload-type=cpu-intensive`
+    - `environment=production`
+  </Accordion>
+
+  <Accordion title="Apply Taints for Dedicated Nodes">
+    Use taints to dedicate nodes for specific workloads:
+    - GPU nodes: `dedicated=gpu:NoSchedule`
+    - Database nodes: `dedicated=database:NoSchedule`
+    - High-priority workloads: `priority=high:PreferNoSchedule`
+  </Accordion>
+
+  <Accordion title="Enable Drain Before Delete">
+    Set `drainBeforeDelete: true` on node pools to gracefully migrate workloads before node removal.
+  </Accordion>
+
+  <Accordion title="Monitor Node Health">
+    Regularly check node conditions and resource usage:
+    - Watch for DiskPressure, MemoryPressure conditions
+    - Monitor resource allocation (requested vs allocatable)
+    - Set up alerts for node not-ready states
+  </Accordion>
+</AccordionGroup>
+
+## Node Autoscaling
+
+For RKE2/K3s clusters using the provisioning API:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "machinePools": [
+      {
+        "name": "worker-pool",
+        "quantity": 3,
+        "autoscalingMinSize": 2,
+        "autoscalingMaxSize": 10,
+        "workerRole": true
+      }
+    ]
+  }' \
+  https://rancher-server/v1/provisioning.cattle.io.clusters/fleet-default/my-cluster
+```
+
+<Info>
+  Autoscaling requires the Kubernetes Cluster Autoscaler to be installed.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Workloads" icon="layer-group" href="/api/resources/workloads">
+    Deploy applications to nodes
+  </Card>
+  <Card title="Clusters" icon="server" href="/api/resources/clusters">
+    Manage clusters
+  </Card>
+  <Card title="Node Scaling" icon="arrows-up-down" href="/guides/autoscaling">
+    Configure cluster autoscaling
+  </Card>
+</CardGroup>

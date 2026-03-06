@@ -1,0 +1,462 @@
+---
+title: Cluster API Resource
+description: Manage Kubernetes clusters via the Rancher API
+---
+
+The Cluster resource represents a Kubernetes cluster managed by Rancher. Clusters can be provisioned by Rancher (RKE, RKE2, K3s) or imported from existing infrastructure.
+
+## Cluster Resource
+
+From `pkg/apis/management.cattle.io/v3/cluster_types.go:97`
+
+### Cluster Spec
+
+<ParamField path="displayName" type="string" required>
+  Human-readable name displayed in the Rancher UI
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional description of the cluster's purpose
+</ParamField>
+
+<ParamField path="kubernetesVersion" type="string">
+  Desired Kubernetes version (for RKE2/K3s clusters)
+</ParamField>
+
+<ParamField path="rke2Config" type="Rke2Config">
+  Configuration for RKE2 clusters. See [RKE2 Configuration](#rke2-configuration)
+</ParamField>
+
+<ParamField path="k3sConfig" type="K3sConfig">
+  Configuration for K3s clusters
+</ParamField>
+
+<ParamField path="importedConfig" type="ImportedConfig">
+  Configuration for imported clusters
+  
+  <ParamField path="kubeConfig" type="string" password>
+    Base64-encoded kubeconfig for cluster access
+  </ParamField>
+</ParamField>
+
+<ParamField path="aksConfig" type="AKSClusterConfigSpec">
+  Azure Kubernetes Service configuration
+</ParamField>
+
+<ParamField path="eksConfig" type="EKSClusterConfigSpec">
+  Amazon Elastic Kubernetes Service configuration
+</ParamField>
+
+<ParamField path="gkeConfig" type="GKEClusterConfigSpec">
+  Google Kubernetes Engine configuration
+</ParamField>
+
+<ParamField path="enableNetworkPolicy" type="boolean" default={false}>
+  Enable project network isolation using Kubernetes NetworkPolicy
+</ParamField>
+
+<ParamField path="localClusterAuthEndpoint" type="LocalClusterAuthEndpoint">
+  Configuration for local cluster authentication endpoint
+  
+  <ParamField path="enabled" type="boolean">
+    Enable local authentication endpoint
+  </ParamField>
+  
+  <ParamField path="fqdn" type="string">
+    Fully qualified domain name for the endpoint
+  </ParamField>
+  
+  <ParamField path="caCerts" type="string">
+    CA certificates for the endpoint
+  </ParamField>
+</ParamField>
+
+<ParamField path="agentEnvVars" type="array<EnvVar>">
+  Environment variables for the cluster agent
+</ParamField>
+
+<ParamField path="clusterAgentDeploymentCustomization" type="AgentDeploymentCustomization">
+  Customization options for cluster agent deployment
+</ParamField>
+
+<ParamField path="fleetAgentDeploymentCustomization" type="AgentDeploymentCustomization">
+  Customization options for fleet agent deployment
+</ParamField>
+
+<ParamField path="defaultPodSecurityAdmissionConfigurationTemplateName" type="string">
+  Name of the Pod Security Admission configuration template
+</ParamField>
+
+### Cluster Status
+
+<ResponseField name="conditions" type="array<ClusterCondition>">
+  Current state conditions of the cluster
+</ResponseField>
+
+<ResponseField name="driver" type="string">
+  Cluster driver type: `imported`, `rancherKubernetesEngine`, `rke2`, `k3s`, `AKS`, `EKS`, `GKE`
+</ResponseField>
+
+<ResponseField name="provider" type="string">
+  Cloud provider: `aws`, `azure`, `gcp`, `vsphere`, etc.
+</ResponseField>
+
+<ResponseField name="apiEndpoint" type="string">
+  Kubernetes API server endpoint URL
+</ResponseField>
+
+<ResponseField name="caCert" type="string">
+  Base64-encoded CA certificate for the cluster
+</ResponseField>
+
+<ResponseField name="version" type="version.Info">
+  Kubernetes version information
+</ResponseField>
+
+<ResponseField name="nodeCount" type="integer">
+  Total number of nodes in the cluster
+</ResponseField>
+
+<ResponseField name="capacity" type="ResourceList">
+  Total cluster capacity (CPU, memory, pods)
+</ResponseField>
+
+<ResponseField name="allocatable" type="ResourceList">
+  Allocatable resources in the cluster
+</ResponseField>
+
+<ResponseField name="agentImage" type="string">
+  Container image used for the cluster agent
+</ResponseField>
+
+## Cluster Conditions
+
+From `pkg/apis/management.cattle.io/v3/cluster_types.go:39`
+
+<ResponseField name="Ready" type="condition">
+  Cluster is ready to serve API requests (healthy when true)
+</ResponseField>
+
+<ResponseField name="Pending" type="condition">
+  Cluster provisioning is in progress
+</ResponseField>
+
+<ResponseField name="Provisioned" type="condition">
+  Cluster infrastructure has been provisioned
+</ResponseField>
+
+<ResponseField name="Updated" type="condition">
+  Cluster configuration has been updated
+</ResponseField>
+
+<ResponseField name="AgentDeployed" type="condition">
+  Cluster agent has been deployed successfully
+</ResponseField>
+
+<ResponseField name="NoDiskPressure" type="condition">
+  All nodes have sufficient disk space
+</ResponseField>
+
+<ResponseField name="NoMemoryPressure" type="condition">
+  All nodes have sufficient memory
+</ResponseField>
+
+## Create Cluster
+
+Create a new Kubernetes cluster.
+
+### RKE2 Cluster
+
+<CodeGroup>
+```bash cURL
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d @- << 'EOF'
+{
+  "type": "cluster",
+  "name": "production-cluster",
+  "displayName": "Production Cluster",
+  "description": "Production workload cluster",
+  "rke2Config": {
+    "kubernetesVersion": "v1.28.5+rke2r1",
+    "networking": {
+      "plugin": "calico"
+    }
+  }
+}
+EOF
+  https://rancher-server/v3/clusters
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://rancher-server/v3/clusters',
+    headers={
+        'Authorization': f'Bearer {RANCHER_TOKEN}',
+        'Content-Type': 'application/json'
+    },
+    json={
+        'type': 'cluster',
+        'name': 'production-cluster',
+        'displayName': 'Production Cluster',
+        'description': 'Production workload cluster',
+        'rke2Config': {
+            'kubernetesVersion': 'v1.28.5+rke2r1',
+            'networking': {
+                'plugin': 'calico'
+            }
+        }
+    }
+)
+
+cluster = response.json()
+print(f"Cluster ID: {cluster['id']}")
+```
+</CodeGroup>
+
+### Import Existing Cluster
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "cluster",
+    "name": "imported-prod",
+    "displayName": "Imported Production",
+    "importedConfig": {
+      "kubeConfig": "<base64-encoded-kubeconfig>"
+    }
+  }' \
+  https://rancher-server/v3/clusters
+```
+
+## List Clusters
+
+Retrieve all clusters:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters
+```
+
+### Filter Clusters
+
+Filter by labels:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  "https://rancher-server/v3/clusters?labelSelector=environment%3Dproduction"
+```
+
+## Get Cluster
+
+Retrieve a specific cluster:
+
+```bash
+curl -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123
+```
+
+### Response Example
+
+```json
+{
+  "id": "c-m-abc123",
+  "type": "cluster",
+  "links": {
+    "self": "https://rancher-server/v3/clusters/c-m-abc123",
+    "nodes": "https://rancher-server/v3/clusters/c-m-abc123/nodes",
+    "projects": "https://rancher-server/v3/clusters/c-m-abc123/projects"
+  },
+  "metadata": {
+    "name": "production-cluster",
+    "creationTimestamp": "2024-01-01T00:00:00Z"
+  },
+  "spec": {
+    "displayName": "Production Cluster",
+    "description": "Production workload cluster",
+    "rke2Config": {
+      "kubernetesVersion": "v1.28.5+rke2r1"
+    }
+  },
+  "status": {
+    "driver": "rke2",
+    "provider": "aws",
+    "conditions": [
+      {
+        "type": "Ready",
+        "status": "True",
+        "lastUpdateTime": "2024-01-01T00:10:00Z"
+      }
+    ],
+    "apiEndpoint": "https://api.cluster.example.com:6443",
+    "nodeCount": 5,
+    "version": {
+      "gitVersion": "v1.28.5"
+    }
+  }
+}
+```
+
+## Update Cluster
+
+Update cluster configuration:
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "displayName": "Production Cluster - Updated",
+    "description": "Updated description"
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123
+```
+
+## Delete Cluster
+
+Delete a cluster:
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123
+```
+
+<Warning>
+  Deleting a cluster is irreversible and will remove all associated resources.
+</Warning>
+
+## Cluster Actions
+
+### Generate Kubeconfig
+
+Generate a kubeconfig file for cluster access:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123?action=generateKubeconfig
+```
+
+<ResponseField name="config" type="string">
+  Base64-encoded kubeconfig file content
+</ResponseField>
+
+### Backup ETCD
+
+Create an ETCD snapshot:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  https://rancher-server/v3/clusters/c-m-abc123?action=backupEtcd
+```
+
+### Restore from ETCD Backup
+
+Restore cluster from an ETCD snapshot:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "etcdBackupName": "backup-20240101-000000",
+    "restoreRkeConfig": "all"
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123?action=restoreFromEtcdBackup
+```
+
+### Rotate Certificates
+
+Rotate cluster certificates:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer ${RANCHER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "caCertificates": true,
+    "services": ["etcd", "kubelet", "kube-apiserver"]
+  }' \
+  https://rancher-server/v3/clusters/c-m-abc123?action=rotateCertificates
+```
+
+## Cluster Drivers
+
+From `pkg/apis/management.cattle.io/v3/cluster_types.go:76`
+
+<ResponseField name="imported" value="imported">
+  Cluster imported from existing infrastructure
+</ResponseField>
+
+<ResponseField name="local" value="local">
+  Local cluster running Rancher
+</ResponseField>
+
+<ResponseField name="rancherKubernetesEngine" value="rancherKubernetesEngine">
+  Legacy RKE1 cluster (deprecated)
+</ResponseField>
+
+<ResponseField name="rke2" value="rke2">
+  RKE2 cluster
+</ResponseField>
+
+<ResponseField name="k3s" value="k3s">
+  K3s lightweight cluster
+</ResponseField>
+
+<ResponseField name="AKS" value="AKS">
+  Azure Kubernetes Service
+</ResponseField>
+
+<ResponseField name="EKS" value="EKS">
+  Amazon Elastic Kubernetes Service
+</ResponseField>
+
+<ResponseField name="GKE" value="GKE">
+  Google Kubernetes Engine
+</ResponseField>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Descriptive Names">
+    Set meaningful `displayName` and `description` fields to identify cluster purpose and environment.
+  </Accordion>
+
+  <Accordion title="Monitor Cluster Conditions">
+    Regularly check cluster conditions to ensure health and catch issues early.
+  </Accordion>
+
+  <Accordion title="Enable Network Policies">
+    Set `enableNetworkPolicy: true` for production clusters to enable project isolation.
+  </Accordion>
+
+  <Accordion title="Configure Resource Quotas">
+    Define resource quotas at the project level to prevent resource exhaustion.
+  </Accordion>
+
+  <Accordion title="Regular Backups">
+    Schedule automated ETCD backups for disaster recovery.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Projects" icon="folder" href="/api/resources/projects">
+    Create multi-tenant projects
+  </Card>
+  <Card title="Nodes" icon="server" href="/api/resources/nodes">
+    Manage cluster nodes
+  </Card>
+  <Card title="Workloads" icon="layer-group" href="/api/resources/workloads">
+    Deploy applications
+  </Card>
+</CardGroup>

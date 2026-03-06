@@ -1,0 +1,163 @@
+---
+title: Cluster Provisioning Overview
+description: Learn about Rancher's cluster provisioning capabilities, architecture, and supported cluster types
+---
+
+Rancher provides flexible cluster provisioning through multiple methods to create and manage Kubernetes clusters across various infrastructure providers.
+
+## Provisioning Architecture
+
+Rancher's provisioning system is built on the following components:
+
+### Provisioning API
+
+The core provisioning API is defined in `provisioning.cattle.io/v1` and includes:
+
+- **Cluster Resource**: Main object representing a provisioning cluster
+- **RKEConfig**: Configuration for RKE2/K3s cluster provisioning
+- **MachinePools**: Define groups of nodes with specific roles (etcd, control plane, worker)
+- **CloudCredentialSecretName**: References cloud provider credentials for infrastructure provisioning
+
+```go
+type ClusterSpec struct {
+    CloudCredentialSecretName string
+    KubernetesVersion string
+    RKEConfig *RKEConfig
+    LocalClusterAuthEndpoint LocalClusterAuthEndpoint
+    AgentEnvVars []EnvVar
+}
+```
+
+### CAPR Controllers
+
+The Cluster API Provider Rancher (CAPR) controllers handle cluster lifecycle operations:
+
+- **Machine Provision Controller**: Manages node provisioning using node drivers
+- **Bootstrap Controller**: Handles cluster initialization
+- **RKE Planner**: Orchestrates RKE2/K3s cluster configuration
+- **Machine Drain Controller**: Safely drains nodes before removal
+- **Autoscaler Controller**: Integrates with cluster autoscaling (requires `cluster-autoscaling` feature)
+
+References: `pkg/controllers/capr/controllers.go:38-61`
+
+## Cluster Provisioning Methods
+
+Rancher supports three primary provisioning methods:
+
+### 1. Provisioned Clusters (RKE2/K3s)
+
+Clusters provisioned by Rancher using RKE2 or K3s distributions on infrastructure nodes:
+
+- Full control over cluster configuration
+- Machine pools with customizable roles
+- Automated upgrade management
+- ETCD snapshot and restore capabilities
+
+**Enabled by features:**
+- `rke2`: Enable provisioning of RKE2 (default: enabled)
+- `provisioningv2`: Enable cluster-api based provisioning framework (default: enabled)
+
+References: `pkg/features/feature.go:71-88`
+
+### 2. Hosted Kubernetes Clusters
+
+Managed Kubernetes services from cloud providers:
+
+- **Amazon EKS**: Elastic Kubernetes Service
+- **Google GKE**: Google Kubernetes Engine  
+- **Azure AKS**: Azure Kubernetes Service
+
+Rancher integrates with cloud provider APIs to create and manage these clusters through operator-based controllers.
+
+References:
+- AKS: `pkg/api/norman/customization/aks/handler.go`
+- GKE: `pkg/api/norman/customization/gke/handler.go`
+- EKS: `pkg/controllers/management/eks/eks_cluster_handler.go`
+
+### 3. Imported Clusters
+
+Existing Kubernetes clusters registered with Rancher for management (covered in separate documentation).
+
+## Node Driver vs Cluster Driver
+
+### Node Drivers
+
+Node drivers provision individual infrastructure nodes (VMs) for RKE2/K3s clusters:
+
+- **Built-in drivers**: Amazon EC2, Azure, DigitalOcean, vSphere, Harvester
+- **Custom drivers**: Download and execute Docker Machine drivers
+- **Machine configuration**: CPU, memory, disk, networking per node
+
+Node drivers are used with **provisioned clusters** where Rancher installs and configures Kubernetes.
+
+References: `pkg/controllers/capr/machineprovision/args.go:80-202`
+
+### Cluster Drivers (Operator-based)
+
+Cluster drivers provision entire managed Kubernetes clusters through cloud provider APIs:
+
+- **EKS Operator**: Provisions EKS clusters via AWS API
+- **GKE Operator**: Provisions GKE clusters via Google Cloud API
+- **AKS Operator**: Provisions AKS clusters via Azure API
+
+Cluster drivers create **hosted Kubernetes** clusters where the cloud provider manages the control plane.
+
+References: `pkg/controllers/management/eks/eks_cluster_handler.go:46-86`
+
+## Provisioning Features
+
+Rancher's provisioning system includes:
+
+<Steps>
+  <Step title="Cloud Credential Management">
+    Store and reuse cloud provider credentials across clusters. Credentials are stored as secrets in the `cattle-global-data` namespace.
+
+    Reference: `pkg/controllers/capr/machineprovision/args.go:259-265`
+  </Step>
+
+  <Step title="Machine Pool Configuration">
+    Define node groups with specific roles:
+    - **etcdRole**: ETCD database nodes
+    - **controlPlaneRole**: Kubernetes control plane
+    - **workerRole**: Application workload nodes
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:165-349`
+  </Step>
+
+  <Step title="Cluster Autoscaling">
+    Automatic scaling of machine pools based on resource demands:
+    - Set `autoscalingMinSize` and `autoscalingMaxSize` on machine pools
+    - Requires `cluster-autoscaling` feature (Rancher Prime)
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:271-281`
+  </Step>
+
+  <Step title="Rolling Updates">
+    Configure upgrade strategy for machine pools:
+    - Control plane concurrency
+    - Worker concurrency  
+    - Drain options before updates
+
+    Reference: `pkg/apis/provisioning.cattle.io/v1/cluster_types.go:351-385`
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RKE2 Provisioning" icon="server" href="./rke2">
+    Provision RKE2 clusters with custom configuration
+  </Card>
+  
+  <Card title="K3s Provisioning" icon="cloud" href="./k3s">
+    Deploy lightweight K3s clusters
+  </Card>
+  
+  <Card title="Hosted Kubernetes" icon="cloud-arrow-up" href="./hosted-kubernetes">
+    Provision EKS, GKE, and AKS clusters
+  </Card>
+  
+  <Card title="Machine Pools" icon="layer-group" href="../management/machine-pools">
+    Configure and manage machine pools
+  </Card>
+</CardGroup>
