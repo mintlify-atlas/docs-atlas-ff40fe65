@@ -503,6 +503,76 @@ Settings are stored as CRDs and can be configured via:
 - CLI: `kubectl edit setting <name>`
 - API: `/v1/management.cattle.io.setting`
 
+## System Dependencies
+
+Rancher relies on several external dependencies and automatically installs system charts for core functionality.
+
+### External Dependencies
+
+**Required:**
+- **Kubernetes Cluster**: Version 1.x < 1.36.0 - Rancher must run on a supported Kubernetes cluster
+
+**Optional:**
+- **cert-manager**: Required for TLS certificate management when using Rancher-generated certificates or Let's Encrypt. Not needed if bringing your own certificates.
+
+### System Charts (Auto-installed)
+
+Rancher automatically installs and manages several system charts that provide core functionality:
+
+**Core System Charts:**
+
+<Accordion title="Fleet (cattle-fleet-system namespace)">
+Fleet is Rancher's GitOps continuous delivery engine that enables cluster-wide and multi-cluster application deployment.
+
+- Manages GitRepo resources for application deployment
+- Handles bundle distribution across clusters
+- Provides drift detection and reconciliation
+</Accordion>
+
+<Accordion title="Rancher Webhook (cattle-system)">
+Provides validation and mutation webhooks for Rancher resources.
+
+- Validates resource specifications before admission
+- Enforces security policies
+- Mutates resources with default values
+</Accordion>
+
+**Cloud Provider Operators (Conditional):**
+
+These operators are installed automatically when managing clusters on specific cloud providers:
+
+- **aks-operator**: Azure Kubernetes Service integration (rancher-operator-system)
+- **eks-operator**: Amazon Elastic Kubernetes Service integration (rancher-operator-system)
+- **gke-operator**: Google Kubernetes Engine integration (rancher-operator-system)
+- **ali-operator**: Alibaba Cloud integration (rancher-operator-system)
+
+**Optional System Charts:**
+
+- **System Upgrade Controller**: Automates Kubernetes cluster upgrades (cattle-system)
+- **Rancher Turtles**: Cluster API (CAPI) lifecycle management integration (rancher-turtles-system)
+
+<Note>
+System charts are managed by Rancher and should not be modified directly. Configuration should be done through Rancher's UI or API.
+</Note>
+
+## System Namespaces
+
+Rancher creates and manages several namespaces for organizing system components:
+
+| Namespace | Purpose |
+|-----------|---------|
+| `cattle-system` | Core Rancher server components and webhooks |
+| `cattle-fleet-system` | Fleet GitOps controller and resources |
+| `cattle-impersonation-system` | Impersonation tokens for cluster access |
+| `cattle-telemetry-system` | Telemetry collection and reporting |
+| `rancher-operator-system` | Cloud provider operators (AKS, EKS, GKE, Alibaba) |
+| `cattle-csp-adapter-system` | CSP (Cloud Service Provider) adapter for Rancher Prime |
+| `cattle-scc-system` | Support and connectivity check for Rancher Prime |
+
+<Warning>
+Do not delete these namespaces manually. They are required for Rancher operation and will be recreated automatically if removed.
+</Warning>
+
 ## Service Account Management
 
 Service account token handling in `pkg/serviceaccounttoken/`:

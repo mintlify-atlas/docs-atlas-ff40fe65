@@ -175,6 +175,18 @@ Configuration for Rancher namespace labels and annotations.
 - **Default**: None
 - **Source**: main.go:170
 
+#### Features
+
+```bash
+--features <feature-flags>
+```
+
+Enable or disable specific Rancher features using comma-separated feature flags.
+
+- **Environment Variable**: `CATTLE_FEATURES`
+- **Default**: None
+- **Example**: `--features=fleet=false,multi-cluster-management=true`
+
 ## Environment Variables
 
 Many configuration options can be set using environment variables:
@@ -194,6 +206,14 @@ Many configuration options can be set using environment variables:
 | `RANCHER_NAMESPACES_OPTIONS` | Namespace configuration | None |
 | `CATTLE_DEV_MODE` | Enable development mode | None |
 | `RANCHER_VERSION_TYPE` | Rancher version type (prime) | None |
+| `CATTLE_PEER_SERVICE` | HA peer service name for clustering | Not set (auto-detected) |
+| `CATTLE_NAMESPACE` | Namespace where Rancher is running | `cattle-system` |
+| `CATTLE_HOME` | Rancher home directory for data | `/var/lib/rancher` |
+| `CATTLE_BASE_REGISTRY` | Default container registry for system images | Not set (Docker Hub) |
+| `CATTLE_BOOTSTRAP_PASSWORD` | Initial admin password on first install | Random (set in UI) |
+| `CATTLE_DEBUG` | Enable debug-level logging (alternative to --debug) | Not set |
+| `CATTLE_TRACE` | Enable trace-level logging (alternative to --trace) | Not set |
+| `CATTLE_PROMETHEUS_METRICS` | Enable Prometheus metrics endpoint | `false` |
 
 ## Helm Chart Configuration
 

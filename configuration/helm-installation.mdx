@@ -225,6 +225,88 @@ kubectl -n cattle-system logs -l app=rancher
 
 For additional troubleshooting guidance, refer to the [Rancher Troubleshooting documentation](https://ranchermanager.docs.rancher.com/troubleshooting/general-troubleshooting).
 
+### Gateway API Configuration
+
+Rancher supports the Gateway API as an alternative to traditional Ingress controllers. This is useful for environments that use Gateway API for routing.
+
+```yaml
+networkExposure:
+  type: gateway  # Options: ingress, gateway
+  gateway:
+    gatewayClass: istio  # Gateway class to use
+    gatewayName: rancher-gateway  # Name of the gateway
+    listenerName: https  # Listener name on the gateway
+```
+
+To install Rancher with Gateway API:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.my.org \
+  --set networkExposure.type=gateway \
+  --set networkExposure.gateway.gatewayClass=istio
+```
+
+<Note>
+Gateway API support requires the Gateway API CRDs to be installed in your cluster and a compatible Gateway controller (e.g., Istio, Envoy Gateway).
+</Note>
+
+### Resource Requirements
+
+For production deployments, it's recommended to set resource requests and limits to ensure stable performance:
+
+```yaml
+resources:
+  requests:
+    memory: "2Gi"
+    cpu: "1"
+  limits:
+    memory: "4Gi"
+    cpu: "2"
+```
+
+Example installation with resource requirements:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.my.org \
+  --set resources.requests.memory=2Gi \
+  --set resources.requests.cpu=1 \
+  --set resources.limits.memory=4Gi \
+  --set resources.limits.cpu=2
+```
+
+<Tip>
+Adjust these values based on your cluster size and workload. Larger clusters with many downstream clusters may require more resources.
+</Tip>
+
+### Host Network Mode
+
+In some scenarios, Rancher needs to run with host networking enabled. This is particularly common in EKS clusters using non-VPC CNI plugins like Calico.
+
+```yaml
+hostNetwork: true
+```
+
+Example installation with host network:
+
+```bash
+helm install rancher rancher-latest/rancher \
+  --namespace cattle-system \
+  --set hostname=rancher.my.org \
+  --set hostNetwork=true
+```
+
+<Warning>
+**Security Implications:**
+- Pods will use the host's network namespace
+- Ports will be exposed directly on the host
+- Bypasses NetworkPolicy controls
+- Should only be used when absolutely necessary (e.g., EKS with Calico CNI)
+</Warning>
+
 ## Next Steps
 
 - Configure [high availability](/configuration/high-availability) for production deployments
